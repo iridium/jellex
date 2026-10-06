@@ -21,6 +21,8 @@ Jellyfin stays the source of truth: libraries, metadata, artwork, watch
 state, progress and ratings all live there. jellex stores almost nothing of
 its own.
 
+![The Plex Web home screen served by jellex from a Jellyfin library](assets/screenshot.webp)
+
 ## What works
 
 Tested against Plex Web 4.160 with a small library of movies, shows and music:

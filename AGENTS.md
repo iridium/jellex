@@ -108,7 +108,7 @@ Dev setup from scratch:
   patched files load. A patch that no longer matches fails loudly at
   startup and jellex falls back to the unpatched client, so check the logs
   after bumping `PMSVersion`. Current patches: skipping plex.tv sign-in;
-  branding (title, plus `jellexCSS` served by `branding.go`, which swaps the
+  branding (page title, "jellex" for "Plex Web" in settings, plus `jellexCSS` served by `branding.go`, which swaps the
   top-bar wordmark and hides the activity dashboard, account menu and server
   settings); no tracking (Sentry, analytics, Statsig in local mode); no
   server administration (`isFullOwnedServer` is always false, hiding Grant
