@@ -82,7 +82,10 @@ func (s *Server) metadata(it *jellyfin.BaseItemDto, sec *section, detail bool) *
 	m := E("Metadata").
 		A("ratingKey", fmt.Sprint(rk)).
 		A("key", fmt.Sprintf("/library/metadata/%d", rk)).
-		A("guid", fmt.Sprintf("plex://%s/%s", typ, id)).
+		// Like PMS's unmatched local items. Not plex://: clients look those
+		// up on plex.tv's metadata service, and a card's actions menu waits
+		// on that lookup, so a made-up plex:// GUID keeps it from opening.
+		A("guid", fmt.Sprintf("local://%d", rk)).
 		A("type", typ).
 		A("title", it.GetName())
 	if sec != nil {
