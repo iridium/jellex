@@ -89,14 +89,15 @@ Dev setup from scratch:
   two.
 - Unhandled routes are logged at INFO as `unhandled` with the Plex client
   query params stripped; that log is the to-do list.
-- Never patch or inject into the Plex Web client; it is served exactly as
-  shipped in the PMS package. Everything is driven by what the API returns.
-  The one exception is branding, in `internal/webui/branding.go`: the
-  favicon is the jellex logo, and `index.html` gets a stylesheet that swaps
-  the top-bar Plex wordmark for `assets/wordmark.svg`. Its selectors target
-  the pinned client, so check the top bar after bumping `PMSVersion`.
-  `JELLEX_DISABLE_CUSTOM_ASSETS=true` turns all of it off. The cached client
-  on disk is never modified.
+- Never change how the Plex Web client behaves: no patching its JS and no
+  injected scripts. Its behavior is driven only by what the API returns.
+  Cosmetic branding is allowed, and lives entirely in
+  `internal/webui/branding.go`: the favicon is the jellex logo, and
+  `index.html` gets a stylesheet link that swaps the top-bar Plex wordmark
+  for `assets/wordmark.svg`. Keep branding to CSS and images. Its selectors
+  target the pinned client, so check the top bar after bumping
+  `PMSVersion`. `JELLEX_DISABLE_CUSTOM_ASSETS=true` turns all of it off. The
+  cached client on disk is never modified.
 - Scope is a single user's view of Jellyfin, not server administration.
   `/media/providers` omits the `manage` and `match` features, which makes
   Plex Web hide metadata editing, matching and deletion. Per-user actions
