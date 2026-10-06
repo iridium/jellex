@@ -1,9 +1,11 @@
 package plex
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"path"
 	"strconv"
@@ -144,8 +146,40 @@ func (s *Server) handlePart(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(h, v)
 		}
 	}
+	// Plex clients download by adding download=1 to the part URL; without
+	// an attachment disposition the browser just plays the file.
+	if r.URL.Query().Get("download") == "1" {
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment",
+			map[string]string{"filename": s.partFilename(r.Context(), item, source, r.PathValue("file"))}))
+	}
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
+}
+
+// partFilename is the original file name of a media source, falling back to
+// the name in the request path.
+func (s *Server) partFilename(ctx context.Context, item, source, fallback string) string {
+	uid, err := s.user(ctx)
+	if err != nil {
+		return fallback
+	}
+	res, _, err := s.jf.LibraryAPI.GetItems(ctx).UserId(uid).Ids([]string{item}).
+		Fields([]jellyfin.ItemFields{"MediaSources"}).Execute()
+	if err != nil || len(res.Items) == 0 {
+		return fallback
+	}
+	for _, ms := range res.Items[0].GetMediaSources() {
+		if ms.GetId() == source && ms.GetPath() != "" {
+			// Jellyfin paths use the server's separators; take the last
+			// element of either kind.
+			p := ms.GetPath()
+			if i := strings.LastIndexAny(p, `/\`); i >= 0 {
+				p = p[i+1:]
+			}
+			return p
+		}
+	}
+	return fallback
 }
 
 // handleTimeline records playback progress the client reports while playing.
