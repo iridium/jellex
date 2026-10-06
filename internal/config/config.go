@@ -34,12 +34,12 @@ type Config struct {
 	WebDir string
 	// DataDir holds jellex state, such as the Jellyfin-to-Plex ID mapping.
 	DataDir string
-	// PublishURLs are the URLs published to plex.tv for Plex apps to connect
-	// to, like PMS's custom server access URLs.
-	PublishURLs []string
-	// PlexClaim is a claim token from https://plex.tv/claim, used once to
-	// claim jellex to a plex.tv account on startup.
-	PlexClaim string
+	// JellyfinServerID is the connected Jellyfin server's ID, filled in at
+	// startup rather than configured.
+	JellyfinServerID string
+	// Auth is how browsers sign in: "jellyfin" (a Jellyfin login, acting as
+	// that user) or "none" (open access, everyone is JellyfinUser).
+	Auth string
 	// DisableCustomAssets serves the Plex Web client exactly as shipped,
 	// without jellex's favicon and top-bar wordmark.
 	DisableCustomAssets bool
@@ -60,8 +60,10 @@ func Load() (Config, error) {
 		JellyfinUser:   os.Getenv("JELLYFIN_USER"),
 		WebDir:         getenv("JELLEX_WEB_DIR", webui.DefaultDir()),
 		DataDir:        getenv("JELLEX_DATA_DIR", defaultDataDir()),
-		PublishURLs:    splitList(os.Getenv("JELLEX_PUBLISH_URLS")),
-		PlexClaim:      os.Getenv("PLEX_CLAIM"),
+		Auth:           strings.ToLower(getenv("JELLEX_AUTH", "jellyfin")),
+	}
+	if c.Auth != "jellyfin" && c.Auth != "none" {
+		return c, fmt.Errorf("JELLEX_AUTH must be jellyfin or none, not %q", c.Auth)
 	}
 	if v := os.Getenv("JELLEX_DISABLE_CUSTOM_ASSETS"); v != "" {
 		b, err := strconv.ParseBool(v)
@@ -82,16 +84,6 @@ func defaultDataDir() string {
 		base = "."
 	}
 	return filepath.Join(base, "jellex")
-}
-
-func splitList(s string) []string {
-	var out []string
-	for _, v := range strings.Split(s, ",") {
-		if v = strings.TrimSpace(v); v != "" {
-			out = append(out, v)
-		}
-	}
-	return out
 }
 
 func getenv(key, fallback string) string {

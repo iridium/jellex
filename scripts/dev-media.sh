@@ -101,4 +101,59 @@ if [ ! -f "$f" ]; then
     -c:a ac3 -b:a 192k -ac 2 -shortest "$f"
 fi
 
+# Bulk filler for pagination, infinite scroll, sorting and the A-Z jump bar.
+# One tiny clip is encoded once and copied under many names. Counts can be
+# changed with DEV_MEDIA_MOVIES, DEV_MEDIA_SHOWS and DEV_MEDIA_ARTISTS; skip
+# it entirely with DEV_MEDIA_BULK=0.
+if [ "${DEV_MEDIA_BULK:-1}" != 0 ]; then
+  movies=${DEV_MEDIA_MOVIES:-1000}
+  shows=${DEV_MEDIA_SHOWS:-300}
+  artists=${DEV_MEDIA_ARTISTS:-150}
+  adjectives=(Amber Brass Cobalt Dusty Ember Frozen Golden Hollow Ivory Jade Kind Lonely
+    Midnight Northern Olive Pale Quiet Rusty Silent Tall Upper Velvet Wild Yellow Zealous)
+  nouns=(Harbor Orchard Lantern River Canyon Meadow Signal Garden Tower Valley Mirror Engine)
+  suffixes=("" " II" " III" " Returns" " Forever")
+  # title N: a unique "Adjective Noun[ suffix]" for N in 0..1499.
+  title() {
+    local i=$1 na=${#adjectives[@]} nn=${#nouns[@]}
+    echo "${adjectives[$((i % na))]} ${nouns[$((i / na % nn))]}${suffixes[$((i / (na * nn)))]}"
+  }
+  tmp=$(mktemp -d)
+  ffmpeg -nostdin -loglevel error -f lavfi -i "testsrc2=size=160x90:rate=12:duration=2" \
+    -f lavfi -i "sine=frequency=500:duration=2" -c:v libx264 -preset ultrafast -crf 40 \
+    -pix_fmt yuv420p -c:a aac -b:a 32k -shortest "$tmp/tiny.mp4"
+  ffmpeg -nostdin -loglevel error -f lavfi -i "sine=frequency=600:duration=2" \
+    -c:a libmp3lame -b:a 32k "$tmp/tiny.mp3"
+
+  for i in $(seq 0 $((movies - 1))); do
+    name="$(title "$i") ($((1950 + i % 70)))"
+    f="movies/$name/$name.mp4"
+    [ -f "$f" ] || { mkdir -p "$(dirname "$f")"; cp "$tmp/tiny.mp4" "$f"; }
+  done
+
+  for i in $(seq 0 $((shows - 1))); do
+    show="The $(title "$i") Show ($((1960 + i % 60)))"
+    for e in 01 02 03; do
+      f="tv/$show/Season 01/$show - S01E$e.mp4"
+      [ -f "$f" ] || { mkdir -p "$(dirname "$f")"; cp "$tmp/tiny.mp4" "$f"; }
+    done
+  done
+
+  for i in $(seq 0 $((artists - 1))); do
+    artist="$(title "$i") Band"
+    for alb in 1 2; do
+      album="$(title "$((i + 700))") Sessions Vol. $alb"
+      for t in 1 2 3 4 5; do
+        f="music/$artist/$album ($((1970 + i % 50)))/0$t - Track $t.mp3"
+        [ -f "$f" ] && continue
+        mkdir -p "$(dirname "$f")"
+        ffmpeg -nostdin -loglevel error -i "$tmp/tiny.mp3" -c copy \
+          -metadata artist="$artist" -metadata album_artist="$artist" -metadata album="$album" \
+          -metadata title="Track $t" -metadata track=$t -metadata date=$((1970 + i % 50)) "$f"
+      done
+    done
+  done
+  rm -rf "$tmp"
+fi
+
 echo "dev media ready: $(find . -type f | wc -l) files"

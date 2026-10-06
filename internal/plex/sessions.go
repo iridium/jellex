@@ -29,6 +29,7 @@ type playSession struct {
 	Platform   string
 	Device     string
 	Address    string
+	User       string // signed-in Jellyfin user, if any
 	Item       string // Jellyfin GUID
 	RatingKey  int
 	State      string
@@ -64,6 +65,9 @@ func (t *sessionTracker) update(r *http.Request, guid string, rk int, state stri
 	ps.Platform = plexParam(r, "X-Plex-Platform")
 	ps.Device = plexParam(r, "X-Plex-Device-Name")
 	ps.Address = r.RemoteAddr
+	if ses, ok := sessionFrom(r.Context()); ok {
+		ps.User = ses.UserName
+	}
 	ps.Item, ps.RatingKey, ps.State, ps.OffsetMs, ps.DurationMs, ps.Seen = guid, rk, state, offset, duration, time.Now()
 	out := *ps
 	if state == "stopped" {
@@ -182,8 +186,12 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	for i := range res.Items {
 		byID[res.Items[i].GetId()] = &res.Items[i]
 	}
-	user := s.accountName(ctx)
+	fallback := s.accountName(ctx)
 	for _, ps := range sessions {
+		user := ps.User
+		if user == "" {
+			user = fallback
+		}
 		it, ok := byID[ps.Item]
 		if !ok {
 			continue
@@ -211,11 +219,11 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	write(w, r, mc)
 }
 
-// accountName is the name shown for the single local account: the plex.tv
-// username when claimed, otherwise the Jellyfin user's name.
+// accountName is the name of the account a request acts as: the signed-in
+// Jellyfin user, or with JELLEX_AUTH=none the configured Jellyfin user.
 func (s *Server) accountName(ctx context.Context) string {
-	if name, ok := s.myplex.Claimed(); ok && name != "" {
-		return name
+	if ses, ok := sessionFrom(ctx); ok {
+		return ses.UserName
 	}
 	uid, err := s.user(ctx)
 	if err != nil {

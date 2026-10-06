@@ -1,0 +1,18 @@
+# jellex is a per-user view of Jellyfin, not something to administer from
+# Plex Web. Plex Web shows owner-only actions (Grant Access, View Play
+# History, library scans and refreshes, Manage Library, Optimize, server
+# settings) when the server is "fully owned"; report it as never owned.
+file: js/main-*.js
+--- find
+isFullOwnedServer(){return this.get("isFullServer")&&!this.get("isShared")}
+--- replace
+isFullOwnedServer(){return!1}
+===
+# Library headers name a server you don't own as "owner • server", with the
+# owner from plex.tv. jellex has no owner, so show just the server name, as
+# for an owned server.
+file: js/main-*.js
+--- find
+`${e.serverSourceTitle} • ${e.serverFriendlyName}`
+--- replace
+e.serverFriendlyName

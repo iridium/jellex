@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iridium/jellex/internal/auth"
 	"github.com/iridium/jellex/internal/config"
 	"github.com/iridium/jellex/internal/ids"
-	"github.com/iridium/jellex/internal/myplex"
 	"github.com/iridium/jellex/internal/webui"
 	jellyfin "github.com/sj14/jellyfin-go/api"
 )
@@ -33,18 +33,25 @@ type Server struct {
 	picks      selections
 	sessions   sessionTracker
 	transcodes transcodeSessions
-	myplex     *myplex.Client
 
 	userOnce sync.Mutex
 	userID   string
+
+	logins        *auth.Store // nil when JELLEX_AUTH=none
+	quickConnects pendingQuickConnect
 }
 
-func NewServer(ctx context.Context, cfg config.Config, jf *jellyfin.APIClient, mp *myplex.Client) (*Server, error) {
+func NewServer(ctx context.Context, cfg config.Config, jf *jellyfin.APIClient) (*Server, error) {
 	m, err := ids.Open(filepath.Join(cfg.DataDir, "ids.json"))
 	if err != nil {
 		return nil, fmt.Errorf("open id map: %w", err)
 	}
-	s := &Server{cfg: cfg, jf: jf, ids: m, mux: http.NewServeMux(), started: time.Now(), myplex: mp}
+	s := &Server{cfg: cfg, jf: jf, ids: m, mux: http.NewServeMux(), started: time.Now()}
+	if cfg.Auth == "jellyfin" {
+		if s.logins, err = auth.Open(cfg.DataDir, cfg.JellyfinURL, cfg.JellyfinServerID); err != nil {
+			return nil, fmt.Errorf("open sessions: %w", err)
+		}
+	}
 	s.routes()
 	go s.reapTranscodes(ctx)
 	s.mux.Handle("GET /web/", http.StripPrefix("/web", webui.Handler(ctx, cfg.WebDir, !cfg.DisableCustomAssets)))
@@ -72,6 +79,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if r = s.authenticate(w, r); r == nil {
+		return
+	}
 	_, pattern := s.mux.Handler(r)
 	if pattern == "" {
 		slog.Info("unhandled", "method", r.Method, "path", r.URL.Path, "query", stripPlexParams(r.URL.RawQuery))
@@ -93,9 +103,16 @@ func stripPlexParams(q string) string {
 	return strings.Join(keep, "&")
 }
 
-// user returns the Jellyfin user ID that all requests act as. It is resolved
-// lazily so jellex can start before Jellyfin is up.
+// user returns the Jellyfin user a request acts as: the signed-in user, or
+// with JELLEX_AUTH=none the configured one (resolved lazily so jellex can
+// start before Jellyfin is up).
 func (s *Server) user(ctx context.Context) (string, error) {
+	if ses, ok := sessionFrom(ctx); ok {
+		return ses.UserID, nil
+	}
+	if s.logins != nil {
+		return "", errors.New("not signed in")
+	}
 	s.userOnce.Lock()
 	defer s.userOnce.Unlock()
 	if s.userID != "" {

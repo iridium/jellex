@@ -10,16 +10,13 @@ services:
     environment:
       JELLYFIN_URL: ${JELLYFIN_URL:?set JELLYFIN_URL to your Jellyfin server}
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:?set JELLYFIN_API_KEY (Jellyfin dashboard > API keys)}
+      JELLEX_AUTH: ${JELLEX_AUTH:-jellyfin}
       JELLYFIN_USER: ${JELLYFIN_USER:-}
       JELLEX_SERVER_NAME: ${JELLEX_SERVER_NAME:-jellex}
-      # URLs Plex apps should use to reach jellex, published to plex.tv.
-      JELLEX_PUBLISH_URLS: ${JELLEX_PUBLISH_URLS:-}
-      # One-time claim token from https://plex.tv/claim (valid 4 minutes).
-      PLEX_CLAIM: ${PLEX_CLAIM:-}
     volumes:
       # Plex Web client, downloaded on first start.
       - jellex-cache:/cache
-      # jellex state: ID map and plex.tv claim. Back this up.
+      # jellex state: ID map and sign-in sessions. Back this up.
       - jellex-data:/data
 
 volumes:

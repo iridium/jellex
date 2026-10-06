@@ -60,6 +60,18 @@ if [ -n "$task" ]; then
   echo "started trickplay generation"
 fi
 
+# A second, restricted user (guest/guest) that can only see Movies, for
+# testing per-user sign-in.
+gid=$(curl -fsS "$JF/Users" -H "$H" | jq -r '.[] | select(.Name=="guest") | .Id')
+if [ -z "$gid" ]; then
+  gid=$(curl -fsS -X POST "$JF/Users/New" -H "$H" -H 'Content-Type: application/json' \
+    -d '{"Name":"guest","Password":"guest"}' | jq -r .Id)
+  movies=$(curl -fsS "$JF/Library/VirtualFolders" -H "$H" | jq -r '.[] | select(.CollectionType=="movies") | .ItemId')
+  curl -fsS "$JF/Users/$gid" -H "$H" | jq ".Policy | .EnableAllFolders=false | .EnabledFolders=[\"$movies\"]" |
+    curl -fsS -X POST "$JF/Users/$gid/Policy" -H "$H" -H 'Content-Type: application/json' -d @-
+  echo "created user guest (Movies only)"
+fi
+
 # A collection of the Blender films, for testing collections.
 uid=$(curl -fsS "$JF/Users" -H "$H" | jq -r '.[0].Id')
 if [ -z "$(curl -fsS "$JF/Items?userId=$uid&Recursive=true&IncludeItemTypes=BoxSet" -H "$H" | jq -r '.Items[] | select(.Name=="Blender Open Movies") | .Id')" ]; then

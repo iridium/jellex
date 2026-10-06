@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/iridium/jellex/internal/config"
-	"github.com/iridium/jellex/internal/myplex"
 	"github.com/iridium/jellex/internal/plex"
 	jellyfin "github.com/sj14/jellyfin-go/api"
 )
@@ -65,6 +64,7 @@ func run() error {
 		return err
 	}
 	slog.Info("connected to jellyfin", "name", info.GetServerName(), "version", info.GetVersion())
+	cfg.JellyfinServerID = info.GetId()
 	if cfg.MachineID == "" {
 		// Stable per Jellyfin server, in the 40-hex form PMS uses.
 		sum := sha1.Sum([]byte("jellex:" + info.GetId()))
@@ -72,18 +72,7 @@ func run() error {
 	}
 	slog.Info("server identity", "name", cfg.ServerName, "machineIdentifier", cfg.MachineID)
 
-	mp, err := myplex.Open(cfg.DataDir, myplex.Identity{MachineID: cfg.MachineID, Name: cfg.ServerName, Version: plex.Version})
-	if err != nil {
-		return err
-	}
-	if _, claimed := mp.Claimed(); !claimed && cfg.PlexClaim != "" {
-		if err := mp.Claim(ctx, cfg.PlexClaim); err != nil {
-			slog.Error("claim with PLEX_CLAIM failed", "err", err)
-		}
-	}
-	go mp.PublishLoop(ctx, cfg.PublishURLs, 15*time.Minute)
-
-	handler, err := plex.NewServer(ctx, cfg, jf, mp)
+	handler, err := plex.NewServer(ctx, cfg, jf)
 	if err != nil {
 		return err
 	}

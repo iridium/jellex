@@ -17,7 +17,6 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /updater/status", s.handleEmpty)
 	m.HandleFunc("GET /activities", s.handleEmpty)
 	m.HandleFunc("GET /:/websockets/notifications", s.handleNotifications)
-	m.HandleFunc("POST /myplex/claim", s.handleClaim)
 	m.HandleFunc("GET /myplex/account", s.handleMyPlexAccount)
 	m.HandleFunc("PUT /myplex/refreshReachability", s.handleOK)
 
@@ -35,13 +34,13 @@ func (s *Server) routes() {
 	s.sessionRoutes()
 	s.transcodeRoutes()
 	s.collectionRoutes()
+	s.loginRoutes()
 }
 
 // serverAttrs are the capability attributes PMS puts on / and
 // /media/providers. myPlexSigninState is always "ok": even unclaimed, that
 // keeps Plex Web from blocking every page with an "unclaimed server" notice.
 func (s *Server) serverAttrs(e *Element) *Element {
-	username, claimed := s.myplex.Claimed()
 	return e.
 		A("allowCameraUpload", false).
 		A("allowChannelAccess", false).
@@ -59,11 +58,10 @@ func (s *Server) serverAttrs(e *Element) *Element {
 		A("livetv", 0).
 		A("machineIdentifier", s.cfg.MachineID).
 		A("musicAnalysis", 0).
-		A("myPlex", claimed).
+		A("myPlex", false).
 		A("myPlexMappingState", "unknown").
 		A("myPlexSigninState", "ok").
 		A("myPlexSubscription", false).
-		Opt("myPlexUsername", username).
 		A("offlineTranscode", 0).
 		A("platform", platform()).
 		A("platformVersion", runtime.Version()).
@@ -108,10 +106,9 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
-	_, claimed := s.myplex.Claimed()
 	write(w, r, Container().
 		A("size", 0).
-		A("claimed", claimed).
+		A("claimed", false).
 		A("machineIdentifier", s.cfg.MachineID).
 		A("version", Version))
 }
@@ -191,41 +188,15 @@ func (s *Server) handleNotifications(w http.ResponseWriter, r *http.Request) {
 	s.pushNotifications(c.CloseRead(r.Context()), c)
 }
 
-// handleClaim claims jellex to the plex.tv account that issued the claim
-// token (from https://plex.tv/claim), then publishes its URLs right away.
-func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
-	tok := r.URL.Query().Get("token")
-	if tok == "" {
-		http.Error(w, "token is required", http.StatusBadRequest)
-		return
-	}
-	if err := s.myplex.Claim(r.Context(), tok); err != nil {
-		slog.Error("claim failed", "err", err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	if err := s.myplex.Publish(r.Context(), s.cfg.PublishURLs); err != nil {
-		slog.Warn("publish after claim failed", "err", err)
-	}
-	write(w, r, s.serverAttrs(Container()))
-}
-
-// handleMyPlexAccount reports the server's plex.tv link. Unlike PMS it never
-// includes the server's own plex.tv token.
+// handleMyPlexAccount reports the server's plex.tv link, which jellex
+// doesn't have (Plex Web still asks).
 func (s *Server) handleMyPlexAccount(w http.ResponseWriter, r *http.Request) {
-	username, claimed := s.myplex.Claimed()
-	e := E("MyPlex").
-		A("signInState", "ok").
+	writeRoot(w, r, E("MyPlex").
+		A("signInState", "none").
 		A("mappingState", "unknown").
 		A("mappingError", "").
 		A("subscriptionActive", false).
-		A("subscriptionState", "Unknown")
-	if claimed {
-		e.A("username", username)
-	} else {
-		e.A("signInState", "none")
-	}
-	writeRoot(w, r, e)
+		A("subscriptionState", "Unknown"))
 }
 
 // handleOK acknowledges requests for server-side actions jellex has nothing

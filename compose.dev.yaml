@@ -7,13 +7,11 @@ services:
     ports:
       - "32400:32400"
     environment:
-      JELLYFIN_URL: http://jellyfin:8096
+      # The local Jellyfin below, unless JELLYFIN_URL is set (e.g. in .env).
+      JELLYFIN_URL: ${JELLYFIN_URL:-http://jellyfin:8096}
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
       JELLEX_SERVER_NAME: jellex-dev
-      # URLs Plex apps should use to reach jellex, published to plex.tv.
-      JELLEX_PUBLISH_URLS: ${JELLEX_PUBLISH_URLS:-}
-      # One-time claim token from https://plex.tv/claim (valid 4 minutes).
-      PLEX_CLAIM: ${PLEX_CLAIM:-}
+      JELLEX_AUTH: ${JELLEX_AUTH:-jellyfin}
     volumes:
       - jellex-cache:/cache
       - jellex-data:/data

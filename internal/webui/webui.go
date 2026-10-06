@@ -43,13 +43,28 @@ func DefaultDir() string {
 
 // Handler serves the web client from dir, mounted under /web/ with the prefix
 // stripped. If dir has no client yet, it is downloaded in the background and
-// requests get 503 until it's ready. If branded, the favicon and the top-bar
-// wordmark are jellex's own (see branding.go).
-func Handler(ctx context.Context, dir string, branded bool) http.Handler {
-	var ready atomic.Bool
-	files := http.FileServerFS(os.DirFS(dir))
+// requests get 503 until it's ready. If custom, it serves a patched copy of
+// the client (patch.go) with jellex's branding; otherwise the client exactly
+// as shipped.
+func Handler(ctx context.Context, dir string, custom bool) http.Handler {
+	// files is set once the client is on disk (and patched, if custom).
+	var files atomic.Pointer[http.Handler]
+	prepare := func() {
+		serve := dir
+		if custom {
+			p, err := patchedDir(dir)
+			if err != nil {
+				slog.Error("patching plex web client failed; serving it unpatched", "err", err)
+			} else {
+				serve = p
+			}
+		}
+		h := http.FileServerFS(os.DirFS(serve))
+		files.Store(&h)
+		slog.Info("plex web client ready", "dir", serve)
+	}
 	if present(dir) {
-		ready.Store(true)
+		prepare()
 	} else {
 		go func() {
 			slog.Info("plex web client not found, downloading", "dir", dir, "url", debURL)
@@ -57,20 +72,28 @@ func Handler(ctx context.Context, dir string, branded bool) http.Handler {
 				slog.Error("plex web client download failed", "err", err)
 				return
 			}
-			ready.Store(true)
-			slog.Info("plex web client ready", "dir", dir)
+			prepare()
 		}()
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !ready.Load() {
+		fs := files.Load()
+		if fs == nil {
 			w.Header().Set("Retry-After", "10")
 			http.Error(w, "Plex web client is still downloading, try again shortly.", http.StatusServiceUnavailable)
 			return
 		}
-		if branded && serveBranding(w, r, dir) {
+		if custom && serveBranding(w, r) {
 			return
 		}
-		files.ServeHTTP(w, r)
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			// Hashed assets can be cached forever; the page that names
+			// them must be revalidated.
+			w.Header().Set("Cache-Control", "no-cache")
+			if custom {
+				w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
+			}
+		}
+		(*fs).ServeHTTP(w, r)
 	})
 }
 
@@ -210,3 +233,19 @@ func arMember(r io.Reader, name string) (io.Reader, error) {
 		}
 	}
 }
+
+// contentSecurityPolicy keeps Plex Web talking only to jellex: no plex.tv,
+// analytics, Sentry or other third parties. Patches already switch most of
+// that off; this blocks whatever is left. The exceptions: Google's Cast SDK
+// (scripts from www.gstatic.com) for Chromecast, and eval, which Plex Web's
+// templates need.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-inline' 'unsafe-eval' www.gstatic.com; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob:; " +
+	"media-src 'self' blob:; " +
+	"font-src 'self' data:; " +
+	"connect-src 'self'; " +
+	"worker-src 'self' blob:; " +
+	"frame-src 'self'; " +
+	"object-src 'none'; base-uri 'self'"
