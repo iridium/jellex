@@ -21,7 +21,8 @@ type Config struct {
 	JellyfinURL string
 	// JellyfinAPIKey authenticates jellex against Jellyfin.
 	JellyfinAPIKey string
-	// ServerName is the friendly name advertised to Plex clients.
+	// ServerName is the friendly name advertised to Plex clients. Empty
+	// means use the Jellyfin server's name.
 	ServerName string
 	// MachineID is the stable identifier advertised to Plex clients and
 	// plex.tv. Empty means derive it from the Jellyfin server ID.
@@ -55,7 +56,7 @@ func Load() (Config, error) {
 		ListenAddr:     getenv("JELLEX_LISTEN_ADDR", ":32400"),
 		JellyfinURL:    os.Getenv("JELLYFIN_URL"),
 		JellyfinAPIKey: os.Getenv("JELLYFIN_API_KEY"),
-		ServerName:     getenv("JELLEX_SERVER_NAME", "jellex"),
+		ServerName:     os.Getenv("JELLEX_SERVER_NAME"),
 		MachineID:      os.Getenv("JELLEX_MACHINE_ID"),
 		JellyfinUser:   os.Getenv("JELLYFIN_USER"),
 		WebDir:         getenv("JELLEX_WEB_DIR", webui.DefaultDir()),

@@ -65,6 +65,12 @@ func run() error {
 	}
 	slog.Info("connected to jellyfin", "name", info.GetServerName(), "version", info.GetVersion())
 	cfg.JellyfinServerID = info.GetId()
+	if cfg.ServerName == "" {
+		cfg.ServerName = info.GetServerName()
+	}
+	if cfg.ServerName == "" {
+		cfg.ServerName = "jellex"
+	}
 	if cfg.MachineID == "" {
 		// Stable per Jellyfin server, in the 40-hex form PMS uses.
 		sum := sha1.Sum([]byte("jellex:" + info.GetId()))

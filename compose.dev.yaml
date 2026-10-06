@@ -10,7 +10,6 @@ services:
       # The local Jellyfin below, unless JELLYFIN_URL is set (e.g. in .env).
       JELLYFIN_URL: ${JELLYFIN_URL:-http://jellyfin:8096}
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
-      JELLEX_SERVER_NAME: jellex-dev
       JELLEX_AUTH: ${JELLEX_AUTH:-jellyfin}
     volumes:
       - jellex-cache:/cache

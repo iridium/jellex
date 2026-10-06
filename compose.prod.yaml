@@ -12,7 +12,7 @@ services:
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:?set JELLYFIN_API_KEY (Jellyfin dashboard > API keys)}
       JELLEX_AUTH: ${JELLEX_AUTH:-jellyfin}
       JELLYFIN_USER: ${JELLYFIN_USER:-}
-      JELLEX_SERVER_NAME: ${JELLEX_SERVER_NAME:-jellex}
+      JELLEX_SERVER_NAME: ${JELLEX_SERVER_NAME:-}
     volumes:
       # Plex Web client, downloaded on first start.
       - jellex-cache:/cache

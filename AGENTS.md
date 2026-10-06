@@ -77,7 +77,7 @@ Dev setup from scratch:
 | `JELLEX_AUTH` | `jellyfin` | `jellyfin` (Jellyfin sign-in per browser) or `none` |
 | `JELLYFIN_USER` | first admin | With `JELLEX_AUTH=none`, the user everyone acts as |
 | `JELLEX_LISTEN_ADDR` | `:32400` | Listen address |
-| `JELLEX_SERVER_NAME` | `jellex` | Name shown to clients |
+| `JELLEX_SERVER_NAME` | Jellyfin's server name | Name shown to clients |
 | `JELLEX_MACHINE_ID` | derived from Jellyfin server ID | Server identity; must differ between instances clients can see |
 | `JELLEX_WEB_DIR` | user cache dir | Plex Web client cache |
 | `JELLEX_DATA_DIR` | user config dir | jellex state (ID map, sessions) |
@@ -112,7 +112,8 @@ Dev setup from scratch:
   top-bar wordmark and hides the activity dashboard, account menu and server
   settings); no tracking (Sentry, analytics, Statsig in local mode); no
   server administration (`isFullOwnedServer` is always false, hiding Grant
-  Access, play history, scans, Manage Library); and no loopback discovery.
+  Access, play history, scans, Manage Library); no loopback discovery; and
+  Skip Intro/Credits without the plex.tv account features.
   Plex Web's page is also served with a Content-Security-Policy allowing
   connections only to jellex (and scripts from Google's Cast SDK), which
   blocks plex.tv outright. Don't stub plex.tv's connection test out of the
@@ -142,8 +143,8 @@ Dev setup from scratch:
 - Stream selections (`PUT /library/parts/{id}`), play queues, transcode
   sessions and now-playing sessions are in memory and lost on restart.
 - Some Plex Web features are gated by plex.tv account feature flags, not by
-  the server: e.g. the Skip Intro/Credits buttons need `intro-markers` /
-  `credits-markers` on the signed-in account.
+  the server. With no account they're all off; the Skip Intro/Credits
+  buttons (`intro-markers` / `credits-markers`) are patched back on.
 - Jellyfin endpoints that take the user from the auth token (playlist move
   and update) fail with an API key ("Guid can't be empty"); jellex works
   around them with admin-capable endpoints.

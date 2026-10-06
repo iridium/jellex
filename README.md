@@ -48,7 +48,7 @@ Tested against Plex Web 4.160 with a small library of movies, shows and music:
   subtitles; seeking works within transcodes
 - Subtitles: external and embedded text subtitles shown over direct play,
   or burned in when transcoding
-- Chapters, and intro/credits markers from Jellyfin media segments or from
+- Chapters, and Skip Intro/Skip Credits from Jellyfin media segments or from
   chapters named Intro/Credits
 - Seek preview thumbnails from Jellyfin trickplay images
 - Playlists: create, add to, reorder, rename, delete and play
@@ -60,8 +60,6 @@ Tested against Plex Web 4.160 with a small library of movies, shows and music:
 
 - Only Plex Web. The Plex mobile and TV apps sign in through plex.tv and find
   servers there, which jellex doesn't support.
-- Skip Intro/Credits buttons: Plex Web only shows them for plex.tv accounts
-  with that feature, so they don't appear; jellex serves the markers anyway.
 - Picture-based subtitles (PGS, VobSub) only work when burned in.
 - Stream selections and play queues are kept in memory and reset when jellex
   restarts.
@@ -126,7 +124,7 @@ All settings, with comments, are in [.env.example](.env.example).
 | `JELLYFIN_API_KEY` | required | Jellyfin API key |
 | `JELLEX_AUTH` | `jellyfin` | `jellyfin`: sign in with a Jellyfin account. `none`: no sign-in |
 | `JELLYFIN_USER` | first admin | With `JELLEX_AUTH=none`, the Jellyfin user everyone acts as |
-| `JELLEX_SERVER_NAME` | `jellex` | Server name shown in Plex Web |
+| `JELLEX_SERVER_NAME` | Jellyfin's server name | Server name shown in Plex Web |
 | `JELLEX_LISTEN_ADDR` | `:32400` | Listen address |
 | `JELLEX_MACHINE_ID` | derived from Jellyfin | Server identity |
 | `JELLEX_DISABLE_CUSTOM_ASSETS` | `false` | Serve Plex Web exactly as shipped: no patches, branding or privacy protections (it will then ask for a plex.tv sign-in) |
@@ -146,6 +144,6 @@ jellex is not affiliated with Plex or Jellyfin. It doesn't include or
 redistribute Plex software: the Plex Web client is downloaded from Plex's
 own servers at runtime. By default jellex applies small patches to a local
 copy of it (skipping the plex.tv sign-in, turning off tracking, hiding
-server-admin UI, and jellex branding); the patch files in
+server-admin UI, enabling Skip Intro/Credits, and jellex branding); the patch files in
 `internal/webui/patches/` contain short snippets of the client's code. Set
 `JELLEX_DISABLE_CUSTOM_ASSETS=true` to serve the client exactly as shipped.
