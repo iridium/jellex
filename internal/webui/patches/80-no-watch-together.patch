@@ -1,0 +1,13 @@
+# Watch Together runs through plex.tv (together.plex.tv rooms, plex.tv
+# friends), which jellex doesn't have, so hide its menu entries.
+file: js/main-*.js
+--- find
+showWatchTogether:function({server:e,provider:t,metadataItem:r}){
+--- replace
+showWatchTogether:function({server:e,provider:t,metadataItem:r}){return!1;
+===
+file: js/main-*.js
+--- find
+{watchTogetherMenuItem:n.createElement(S.A,{onPress:p},(0,g.A)("Watch Together..."))
+--- replace
+{watchTogetherMenuItem:null

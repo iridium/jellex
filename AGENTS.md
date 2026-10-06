@@ -114,8 +114,8 @@ Dev setup from scratch:
   settings); no tracking (Sentry, analytics, Statsig in local mode); no
   server administration (`isFullOwnedServer` is always false, hiding Grant
   Access, play history, scans, Manage Library); no loopback discovery;
-  Skip Intro/Credits without the plex.tv account features; and HLS instead
-  of DASH for transcodes.
+  Skip Intro/Credits without the plex.tv account features; HLS instead of
+  DASH for transcodes; and no Watch Together (it needs plex.tv).
   Plex Web's page is also served with a Content-Security-Policy allowing
   connections only to jellex (and scripts from Google's Cast SDK), which
   blocks plex.tv outright. Don't stub plex.tv's connection test out of the

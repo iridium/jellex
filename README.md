@@ -61,6 +61,8 @@ Tested against Plex Web 4.160 with a small library of movies, shows and music:
 
 - Only Plex Web. The Plex mobile and TV apps sign in through plex.tv and find
   servers there, which jellex doesn't support.
+- Watch Together: Plex runs it through plex.tv (rooms on together.plex.tv,
+  invites from plex.tv friends), so jellex hides it.
 - Picture-based subtitles (PGS, VobSub) only work when burned in.
 - Admin features (metadata editing, matching, server settings) are out of
   scope on purpose.
