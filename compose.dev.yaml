@@ -1,0 +1,50 @@
+# Dev stack: jellex plus a local Jellyfin with test media from dev/media.
+# Run with `docker compose -f compose.dev.yaml watch` (or set
+# COMPOSE_FILE=compose.dev.yaml in .env).
+services:
+  jellex:
+    build: .
+    ports:
+      - "32400:32400"
+    environment:
+      JELLYFIN_URL: http://jellyfin:8096
+      JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
+      JELLEX_SERVER_NAME: jellex-dev
+      # URLs Plex apps should use to reach jellex, published to plex.tv.
+      JELLEX_PUBLISH_URLS: ${JELLEX_PUBLISH_URLS:-}
+      # One-time claim token from https://plex.tv/claim (valid 4 minutes).
+      PLEX_CLAIM: ${PLEX_CLAIM:-}
+    volumes:
+      - jellex-cache:/cache
+      - jellex-data:/data
+    depends_on:
+      - jellyfin
+    develop:
+      watch:
+        # Only Go sources and build files affect the image.
+        - action: rebuild
+          path: .
+          include:
+            - "**/*.go"
+            - go.mod
+            - go.sum
+            - Dockerfile
+          ignore:
+            - dev/
+            - ref/
+            - .git/
+
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    ports:
+      - "8096:8096"
+    volumes:
+      - jellyfin-config:/config
+      - jellyfin-cache:/cache
+      - ./dev/media:/media:ro
+
+volumes:
+  jellex-cache:
+  jellex-data:
+  jellyfin-config:
+  jellyfin-cache:

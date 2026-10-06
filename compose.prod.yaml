@@ -1,0 +1,27 @@
+# Production: jellex only, in front of a Jellyfin you already run elsewhere.
+# Set JELLYFIN_URL and JELLYFIN_API_KEY (e.g. in .env), then:
+#   docker compose -f compose.prod.yaml up -d
+services:
+  jellex:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "32400:32400"
+    environment:
+      JELLYFIN_URL: ${JELLYFIN_URL:?set JELLYFIN_URL to your Jellyfin server}
+      JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:?set JELLYFIN_API_KEY (Jellyfin dashboard > API keys)}
+      JELLYFIN_USER: ${JELLYFIN_USER:-}
+      JELLEX_SERVER_NAME: ${JELLEX_SERVER_NAME:-jellex}
+      # URLs Plex apps should use to reach jellex, published to plex.tv.
+      JELLEX_PUBLISH_URLS: ${JELLEX_PUBLISH_URLS:-}
+      # One-time claim token from https://plex.tv/claim (valid 4 minutes).
+      PLEX_CLAIM: ${PLEX_CLAIM:-}
+    volumes:
+      # Plex Web client, downloaded on first start.
+      - jellex-cache:/cache
+      # jellex state: ID map and plex.tv claim. Back this up.
+      - jellex-data:/data
+
+volumes:
+  jellex-cache:
+  jellex-data:

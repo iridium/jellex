@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256">
+  <title>jellex</title>
+  <defs>
+    <linearGradient id="jx" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#AA5CC3"/>
+      <stop offset="1" stop-color="#00A4DC"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#1F1F24"/>
+  <!-- Plex-style chevron filled with the Jellyfin gradient -->
+  <path d="M17 9h15l17 23-17 23H17l17-23z" fill="url(#jx)"/>
+  <!-- Plex-orange accent along the leading edge -->
+  <path d="M32 9h4l17 23-17 23h-4l17-23z" fill="#E5A00D"/>
+</svg>
