@@ -186,11 +186,17 @@ func (s *Server) sectionHubs(ctx context.Context, sec *section, limit int) ([]*E
 	if err != nil {
 		return nil, err
 	}
+	hubs = append(hubs, recentlyAddedHub(sec, items, limit))
+	return hubs, nil
+}
+
+// recentlyAddedHub is a section's "Recently Added" hub. Its type sets the
+// card shape in Plex Web: "album" gets square cards, the others posters.
+func recentlyAddedHub(sec *section, items []*Element, limit int) *Element {
 	title := map[string]string{"movie": "Recently Added Movies", "show": "Recently Added TV", "artist": "Recently Added Music"}[sec.Type]
 	typ := map[string]string{"movie": "movie", "show": "mixed", "artist": "album"}[sec.Type]
 	ident := map[string]string{"movie": "movie.recentlyadded", "show": "tv.recentlyadded", "artist": "music.recent.added"}[sec.Type]
-	hubs = append(hubs, hub(title, ident, fmt.Sprintf("/library/sections/%d/recentlyAdded", sec.ID), typ, "hub."+ident, items, limit))
-	return hubs, nil
+	return hub(title, ident, fmt.Sprintf("/library/sections/%d/recentlyAdded", sec.ID), typ, "hub."+ident, items, limit)
 }
 
 func (s *Server) handlePromotedHubs(w http.ResponseWriter, r *http.Request) {
@@ -211,9 +217,7 @@ func (s *Server) handlePromotedHubs(w http.ResponseWriter, r *http.Request) {
 			fail(w, r, err)
 			return
 		}
-		h := map[string][2]string{"movie": {"Recently Added Movies", "movie.recentlyadded"}, "show": {"Recently Added TV", "tv.recentlyadded"}, "artist": {"Recently Added Music", "music.recent.added"}}[sec.Type]
-		mc.Add(hub(h[0], h[1], fmt.Sprintf("/library/sections/%d/recentlyAdded", sec.ID), "mixed", "hub."+h[1], items, limit).
-			A("librarySectionID", sec.ID))
+		mc.Add(recentlyAddedHub(sec, items, limit).A("librarySectionID", sec.ID))
 	}
 	write(w, r, mc)
 }

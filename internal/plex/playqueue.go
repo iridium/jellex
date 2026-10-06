@@ -59,8 +59,10 @@ func (s *Server) playQueueRoutes() {
 }
 
 // uriKey extracts the item key from a play queue source URI such as
-// server://<machine>/com.plexapp.plugins.library/library/metadata/7.
-var uriKey = regexp.MustCompile(`/library/(?:metadata|collections)/(\d+)(/children|/items)?$`)
+// server://<machine>/com.plexapp.plugins.library/library/metadata/7. The key
+// can carry a query: playing one track of an album sends
+// .../metadata/<album>/children?excludeAllLeaves=1 with key=<track>.
+var uriKey = regexp.MustCompile(`/library/(?:metadata|collections)/(\d+)(/children|/items)?(?:\?.*)?$`)
 
 func (s *Server) handleCreatePlayQueue(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -112,7 +114,7 @@ func (s *Server) handleCreatePlayQueue(w http.ResponseWriter, r *http.Request) {
 	s.writePlayQueue(w, r, pq)
 }
 
-var playlistURI = regexp.MustCompile(`/playlists/(\d+)(/items)?$`)
+var playlistURI = regexp.MustCompile(`/playlists/(\d+)(/items)?(?:\?.*)?$`)
 
 // createPlaylistQueue starts a play queue from a playlist, in playlist order.
 func (s *Server) createPlaylistQueue(w http.ResponseWriter, r *http.Request, playlistRK int) {
