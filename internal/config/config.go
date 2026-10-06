@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/iridium/jellex/internal/webui"
 	"github.com/joho/godotenv"
@@ -24,13 +23,9 @@ type Config struct {
 	// ServerName is the friendly name advertised to Plex clients. Empty
 	// means use the Jellyfin server's name.
 	ServerName string
-	// MachineID is the stable identifier advertised to Plex clients and
-	// plex.tv. Empty means derive it from the Jellyfin server ID.
+	// MachineID is the server identity advertised to Plex clients, kept in
+	// the database (store.MachineID) and filled in at startup.
 	MachineID string
-	// JellyfinUser is the Jellyfin user whose libraries and watch state are
-	// served. Until auth exists every Plex client acts as this user; empty
-	// means the first administrator.
-	JellyfinUser string
 	// WebDir caches the Plex Web client; it is downloaded there if missing.
 	WebDir string
 	// DataDir holds jellex state, such as the Jellyfin-to-Plex ID mapping.
@@ -38,9 +33,9 @@ type Config struct {
 	// JellyfinServerID is the connected Jellyfin server's ID, filled in at
 	// startup rather than configured.
 	JellyfinServerID string
-	// Auth is how browsers sign in: "jellyfin" (a Jellyfin login, acting as
-	// that user) or "none" (open access, everyone is JellyfinUser).
-	Auth string
+	// Dev turns off sign-in: anyone who can reach jellex acts as the first
+	// Jellyfin administrator. For local development and testing only.
+	Dev bool
 	// DisableCustomAssets serves the Plex Web client exactly as shipped,
 	// without jellex's favicon and top-bar wordmark.
 	DisableCustomAssets bool
@@ -57,21 +52,15 @@ func Load() (Config, error) {
 		JellyfinURL:    os.Getenv("JELLYFIN_URL"),
 		JellyfinAPIKey: os.Getenv("JELLYFIN_API_KEY"),
 		ServerName:     os.Getenv("JELLEX_SERVER_NAME"),
-		MachineID:      os.Getenv("JELLEX_MACHINE_ID"),
-		JellyfinUser:   os.Getenv("JELLYFIN_USER"),
 		WebDir:         getenv("JELLEX_WEB_DIR", webui.DefaultDir()),
 		DataDir:        getenv("JELLEX_DATA_DIR", defaultDataDir()),
-		Auth:           strings.ToLower(getenv("JELLEX_AUTH", "jellyfin")),
 	}
-	if c.Auth != "jellyfin" && c.Auth != "none" {
-		return c, fmt.Errorf("JELLEX_AUTH must be jellyfin or none, not %q", c.Auth)
+	var err error
+	if c.Dev, err = getbool("JELLEX_DEV"); err != nil {
+		return c, err
 	}
-	if v := os.Getenv("JELLEX_DISABLE_CUSTOM_ASSETS"); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return c, fmt.Errorf("JELLEX_DISABLE_CUSTOM_ASSETS: %w", err)
-		}
-		c.DisableCustomAssets = b
+	if c.DisableCustomAssets, err = getbool("JELLEX_DISABLE_CUSTOM_ASSETS"); err != nil {
+		return c, err
 	}
 	if c.JellyfinURL == "" {
 		return c, fmt.Errorf("JELLYFIN_URL is required")
@@ -85,6 +74,18 @@ func defaultDataDir() string {
 		base = "."
 	}
 	return filepath.Join(base, "jellex")
+}
+
+func getbool(key string) (bool, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return false, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", key, err)
+	}
+	return b, nil
 }
 
 func getenv(key, fallback string) string {

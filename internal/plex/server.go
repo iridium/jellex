@@ -3,11 +3,11 @@ package plex
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -25,33 +25,37 @@ const Version = "1.43.4.10903-jellex"
 type Server struct {
 	cfg        config.Config
 	jf         *jellyfin.APIClient
+	db         *sql.DB
 	ids        *ids.Map
 	mux        *http.ServeMux
 	started    time.Time
-	queues     playQueues
 	sheets     sheetCache
-	picks      selections
 	sessions   sessionTracker
 	transcodes transcodeSessions
 
 	userOnce sync.Mutex
 	userID   string
 
-	logins        *auth.Store // nil when JELLEX_AUTH=none
+	logins        *auth.Store // nil in dev mode
 	quickConnects pendingQuickConnect
 }
 
-func NewServer(ctx context.Context, cfg config.Config, jf *jellyfin.APIClient) (*Server, error) {
-	m, err := ids.Open(filepath.Join(cfg.DataDir, "ids.json"))
+// NewServer returns the PMS API server. db is jellex's database (package
+// store).
+func NewServer(ctx context.Context, cfg config.Config, jf *jellyfin.APIClient, db *sql.DB) (*Server, error) {
+	m, err := ids.Open(db)
 	if err != nil {
 		return nil, fmt.Errorf("open id map: %w", err)
 	}
-	s := &Server{cfg: cfg, jf: jf, ids: m, mux: http.NewServeMux(), started: time.Now()}
-	if cfg.Auth == "jellyfin" {
-		if s.logins, err = auth.Open(cfg.DataDir, cfg.JellyfinURL, cfg.JellyfinServerID); err != nil {
+	s := &Server{cfg: cfg, jf: jf, db: db, ids: m, mux: http.NewServeMux(), started: time.Now()}
+	if cfg.Dev {
+		slog.Warn("dev mode: sign-in is off, everyone acts as the first Jellyfin admin")
+	} else {
+		if s.logins, err = auth.Open(db, cfg.JellyfinURL, cfg.JellyfinServerID); err != nil {
 			return nil, fmt.Errorf("open sessions: %w", err)
 		}
 	}
+	s.prunePlayQueues()
 	s.routes()
 	go s.reapTranscodes(ctx)
 	s.mux.Handle("GET /web/", http.StripPrefix("/web", webui.Handler(ctx, cfg.WebDir, !cfg.DisableCustomAssets)))
@@ -104,8 +108,8 @@ func stripPlexParams(q string) string {
 }
 
 // user returns the Jellyfin user a request acts as: the signed-in user, or
-// with JELLEX_AUTH=none the configured one (resolved lazily so jellex can
-// start before Jellyfin is up).
+// in dev mode the first administrator (resolved lazily so jellex can start
+// before Jellyfin is up).
 func (s *Server) user(ctx context.Context) (string, error) {
 	if ses, ok := sessionFrom(ctx); ok {
 		return ses.UserID, nil
@@ -123,19 +127,13 @@ func (s *Server) user(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("list jellyfin users: %w", err)
 	}
 	for _, u := range users {
-		if s.cfg.JellyfinUser != "" {
-			if strings.EqualFold(u.GetName(), s.cfg.JellyfinUser) {
-				s.userID = u.GetId()
-			}
-			continue
-		}
 		if p := u.GetPolicy(); p.GetIsAdministrator() {
 			s.userID = u.GetId()
 			break
 		}
 	}
 	if s.userID == "" {
-		return "", fmt.Errorf("jellyfin user %q not found", s.cfg.JellyfinUser)
+		return "", errors.New("no jellyfin administrator found")
 	}
 	return s.userID, nil
 }

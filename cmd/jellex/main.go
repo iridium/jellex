@@ -3,8 +3,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,6 +15,7 @@ import (
 
 	"github.com/iridium/jellex/internal/config"
 	"github.com/iridium/jellex/internal/plex"
+	"github.com/iridium/jellex/internal/store"
 	jellyfin "github.com/sj14/jellyfin-go/api"
 )
 
@@ -71,14 +70,17 @@ func run() error {
 	if cfg.ServerName == "" {
 		cfg.ServerName = "jellex"
 	}
-	if cfg.MachineID == "" {
-		// Stable per Jellyfin server, in the 40-hex form PMS uses.
-		sum := sha1.Sum([]byte("jellex:" + info.GetId()))
-		cfg.MachineID = hex.EncodeToString(sum[:])
+	db, err := store.Open(cfg.DataDir)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+	if cfg.MachineID, err = store.MachineID(db); err != nil {
+		return fmt.Errorf("machine id: %w", err)
 	}
 	slog.Info("server identity", "name", cfg.ServerName, "machineIdentifier", cfg.MachineID)
 
-	handler, err := plex.NewServer(ctx, cfg, jf)
+	handler, err := plex.NewServer(ctx, cfg, jf, db)
 	if err != nil {
 		return err
 	}

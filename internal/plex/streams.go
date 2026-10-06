@@ -1,44 +1,36 @@
 package plex
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 // Stream selection: Plex clients pick audio and subtitle tracks per part
 // with PUT /library/parts/{id}, and expect later responses to mark those
-// streams selected. Jellyfin has no per-item track memory, so selections are
-// kept in memory (lost on restart; clients then fall back to defaults).
+// streams selected. Jellyfin has no per-item track memory, so jellex keeps
+// selections in its database (stream_selections).
 
 type trackChoice struct {
-	audio, subtitle int // stream IDs; subtitle -1 means explicitly off
+	audio, subtitle int // stream IDs; 0 means not chosen; subtitle -1 means explicitly off
 }
 
-type selections struct {
-	mu     sync.Mutex
-	byPart map[int]trackChoice
-}
-
-func (s *selections) get(part int) (trackChoice, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	c, ok := s.byPart[part]
-	return c, ok
-}
-
-func (s *selections) update(part int, f func(*trackChoice)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.byPart == nil {
-		s.byPart = map[int]trackChoice{}
+func (s *Server) selection(part int) (trackChoice, bool) {
+	var c trackChoice
+	err := s.db.QueryRow("SELECT audio, subtitle FROM stream_selections WHERE part_id = ?", part).
+		Scan(&c.audio, &c.subtitle)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			slog.Error("load stream selection", "part", part, "err", err)
+		}
+		return trackChoice{}, false
 	}
-	c := s.byPart[part]
-	f(&c)
-	s.byPart[part] = c
+	return c, true
 }
 
 func (s *Server) streamRoutes() {
@@ -58,24 +50,28 @@ func (s *Server) handleSelectStreams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	s.picks.update(part, func(c *trackChoice) {
-		if v, err := strconv.Atoi(q.Get("audioStreamID")); err == nil {
-			c.audio = v
+	c, _ := s.selection(part)
+	if v, err := strconv.Atoi(q.Get("audioStreamID")); err == nil {
+		c.audio = v
+	}
+	if v, err := strconv.Atoi(q.Get("subtitleStreamID")); err == nil {
+		if v == 0 {
+			v = -1
 		}
-		if v, err := strconv.Atoi(q.Get("subtitleStreamID")); err == nil {
-			if v == 0 {
-				v = -1
-			}
-			c.subtitle = v
-		}
-	})
+		c.subtitle = v
+	}
+	if _, err := s.db.Exec("INSERT OR REPLACE INTO stream_selections (part_id, audio, subtitle) VALUES (?, ?, ?)",
+		part, c.audio, c.subtitle); err != nil {
+		fail(w, r, err)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
 // applySelection marks the chosen audio and subtitle streams of a Part as
 // selected, overriding the file's defaults.
 func (s *Server) applySelection(part *Element, partID int) {
-	c, ok := s.picks.get(partID)
+	c, ok := s.selection(partID)
 	if !ok {
 		return
 	}

@@ -89,3 +89,21 @@ func TestEmbeddedPatchesParse(t *testing.T) {
 		t.Fatal("no patches embedded")
 	}
 }
+
+func TestRecolor(t *testing.T) {
+	dir := t.TempDir()
+	in := `a{color:#E5A00D;b:#cc7b19ff;c:rgba(229,160,13,.3);f:rgba(204, 123, 25, .3);g:rgb(1,2,3)}d{e:#e5a00db}` +
+		`url("data:image/svg+xml,%3csvg stroke='%23F3B125'")`
+	if err := os.WriteFile(filepath.Join(dir, "x.css"), []byte(in), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := recolor(dir); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "x.css"))
+	want := `a{color:#00a4dc;b:#0083b0ff;c:rgba(0,164,220,.3);f:rgba(0,131,176, .3);g:rgb(1,2,3)}d{e:#e5a00db}` +
+		`url("data:image/svg+xml,%3csvg stroke='%232cb9ec'")`
+	if string(b) != want {
+		t.Errorf("got  %s\nwant %s", b, want)
+	}
+}

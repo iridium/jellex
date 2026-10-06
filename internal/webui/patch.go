@@ -143,10 +143,11 @@ func stripComments(block string) string {
 }
 
 // patchSetID identifies the patch set and patching logic, so a changed set
-// produces a fresh patched copy.
+// produces a fresh patched copy. Bump the version when the patching code
+// itself (stripIntegrity, recolor) changes.
 func patchSetID(ps []patch) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "v1\x00")
+	fmt.Fprintf(h, "v3\x00%v\x00", accentColors)
 	for _, p := range ps {
 		fmt.Fprintf(h, "%s\x00%d\x00%s\x00%s\x00", p.file, p.count, p.find, p.replace)
 	}
@@ -217,6 +218,73 @@ func stripIntegrity(dir string) error {
 	return nil
 }
 
+// accentColors maps Plex's orange accents (lowercase hex) to Jellyfin's
+// blue: the brand accent, a darker shade for pressed and secondary states,
+// and a lighter one for hover and focus.
+var accentColors = map[string]string{
+	"e5a00d": "00a4dc", // Plex accent
+	"cc7b19": "0083b0", // darker
+	"f9be03": "2cb9ec", // lighter
+	"ebaf00": "2cb9ec",
+	"f3b125": "2cb9ec",
+	"f8ad18": "2cb9ec", // setup illustrations (in URL-encoded SVGs)
+}
+
+var (
+	accentHex = regexp.MustCompile(`(?i)(#|%23)(e5a00d|cc7b19|f9be03|ebaf00|f3b125|f8ad18)((?:[0-9a-f]{2})?)\b`)
+	// accentRGB matches the same colors written as rgb()/rgba(), e.g. the
+	// seek bar's buffered range, rgba(204,123,25,.3).
+	accentRGB = regexp.MustCompile(`(rgba?\()(\d{1,3}), ?(\d{1,3}), ?(\d{1,3})([,)])`)
+)
+
+// rgbHex returns the hex form of an rgb() triple.
+func rgbHex(r, g, b string) string {
+	n := func(s string) int { v, _ := strconv.Atoi(s); return v }
+	return fmt.Sprintf("%02x%02x%02x", n(r), n(g), n(b))
+}
+
+// hexRGB returns the "r,g,b" form of a 6-digit hex color.
+func hexRGB(hex string) string {
+	v, _ := strconv.ParseUint(hex, 16, 32)
+	return fmt.Sprintf("%d,%d,%d", v>>16, v>>8&0xff, v&0xff)
+}
+
+// recolor swaps Plex's accent colors for Jellyfin's throughout the client.
+// They're hard-coded in hundreds of places across CSS and JS, so this is a
+// rewrite rather than patch blocks.
+func recolor(dir string) error {
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		switch filepath.Ext(path) {
+		case ".css", ".js", ".html", ".svg":
+		default:
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		s := accentHex.ReplaceAllStringFunc(string(b), func(m string) string {
+			sm := accentHex.FindStringSubmatch(m) // prefix, color, alpha
+			return sm[1] + accentColors[strings.ToLower(sm[2])] + sm[3]
+		})
+		s = accentRGB.ReplaceAllStringFunc(s, func(m string) string {
+			sm := accentRGB.FindStringSubmatch(m) // prefix, r, g, b, terminator
+			to, ok := accentColors[rgbHex(sm[2], sm[3], sm[4])]
+			if !ok {
+				return m
+			}
+			return sm[1] + hexRGB(to) + sm[5]
+		})
+		if s == string(b) {
+			return nil
+		}
+		return os.WriteFile(path, []byte(s), 0o644)
+	})
+}
+
 // patchedDir returns the directory holding the patched copy of the client in
 // pristine, building it if needed. Copies for other patch sets are removed.
 func patchedDir(pristine string) (string, error) {
@@ -242,6 +310,9 @@ func patchedDir(pristine string) (string, error) {
 	}
 	if err := applyPatches(tmp, ps); err != nil {
 		return "", err
+	}
+	if err := recolor(tmp); err != nil {
+		return "", fmt.Errorf("recolor: %w", err)
 	}
 	if err := os.Rename(tmp, dir); err != nil && !errors.Is(err, fs.ErrExist) {
 		return "", err

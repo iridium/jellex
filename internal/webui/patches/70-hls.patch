@@ -1,0 +1,10 @@
+# Transcode over HLS instead of DASH. jellex's transcodes are Jellyfin's
+# HLS streams passed through (transcode.go); Plex Web plays them with
+# hls.js. Plex Web only does this with its experimental "alternate
+# streaming protocol" setting and automatic quality adjustment off; make it
+# unconditional.
+file: js/main-*.js
+--- find
+s.get("forceTranscodeProtocolHLS")&&"dash"===i.transcodeProtocol&&(Vl?s.get("autoAdjustQuality")?
+--- replace
+"dash"===i.transcodeProtocol&&(Vl?!1?

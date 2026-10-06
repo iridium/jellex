@@ -1,7 +1,6 @@
 package plex
 
 import (
-	"encoding/xml"
 	"strings"
 	"testing"
 )
@@ -21,42 +20,21 @@ func TestParseAttrs(t *testing.T) {
 	}
 }
 
-func TestManifest(t *testing.T) {
-	ts := &transcodeSession{id: "abc", codecs: "avc1.424029,mp4a.40.2", width: 1280, height: 720,
-		durMs: []int64{3000, 3000, 1500}}
-	b := ts.manifest()
-	var mpd struct {
-		Duration string `xml:"mediaPresentationDuration,attr"`
-		Sets     []struct {
-			MimeType string `xml:"mimeType,attr"`
-			Rep      struct {
-				Codecs string `xml:"codecs,attr"`
-				Tmpl   struct {
-					Media string `xml:"media,attr"`
-					S     []struct {
-						D int `xml:"d,attr"`
-					} `xml:"SegmentTimeline>S"`
-				} `xml:"SegmentTemplate"`
-			} `xml:"Representation"`
-		} `xml:"Period>AdaptationSet"`
+func TestPlaylists(t *testing.T) {
+	ts := &transcodeSession{id: "a b", codecs: "avc1.424029,mp4a.40.2", width: 1280, height: 720,
+		bitrate: 2128000, durMs: []int64{3000, 3000, 1500}}
+	master := string(ts.masterPlaylist())
+	for _, want := range []string{"BANDWIDTH=2128000", "RESOLUTION=1280x720", `CODECS="avc1.424029,mp4a.40.2"`, "\nsession/a%20b/base/index.m3u8\n"} {
+		if !strings.Contains(master, want) {
+			t.Errorf("master playlist lacks %q:\n%s", want, master)
+		}
 	}
-	if err := xml.Unmarshal(b, &mpd); err != nil {
-		t.Fatalf("manifest is not valid XML: %v\n%s", err, b)
-	}
-	if mpd.Duration != "PT7.500S" {
-		t.Errorf("duration = %s", mpd.Duration)
-	}
-	if len(mpd.Sets) != 2 || mpd.Sets[0].MimeType != "video/mp4" || mpd.Sets[1].MimeType != "audio/mp4" {
-		t.Fatalf("adaptation sets = %+v", mpd.Sets)
-	}
-	if mpd.Sets[0].Rep.Codecs != "avc1.424029" || mpd.Sets[1].Rep.Codecs != "mp4a.40.2" {
-		t.Errorf("codecs = %q / %q", mpd.Sets[0].Rep.Codecs, mpd.Sets[1].Rep.Codecs)
-	}
-	if n := len(mpd.Sets[1].Rep.Tmpl.S); n != 3 {
-		t.Errorf("audio timeline has %d segments, want 3", n)
-	}
-	if !strings.HasPrefix(mpd.Sets[1].Rep.Tmpl.Media, "session/abc/1/") {
-		t.Errorf("audio media template = %q", mpd.Sets[1].Rep.Tmpl.Media)
+	media := string(ts.mediaPlaylist())
+	for _, want := range []string{"#EXT-X-TARGETDURATION:3\n", "#EXT-X-PLAYLIST-TYPE:VOD", `#EXT-X-MAP:URI="header"`,
+		"#EXTINF:3.000,\n0.m4s\n", "#EXTINF:1.500,\n2.m4s\n", "#EXT-X-ENDLIST"} {
+		if !strings.Contains(media, want) {
+			t.Errorf("media playlist lacks %q:\n%s", want, media)
+		}
 	}
 }
 

@@ -4,16 +4,15 @@
 package ids
 
 import (
-	"encoding/json"
-	"errors"
-	"io/fs"
-	"os"
-	"path/filepath"
+	"database/sql"
+	"log/slog"
 	"sync"
 )
 
+// Map is the ID map: the ids table, fully cached in memory so lookups never
+// touch the database.
 type Map struct {
-	path string
+	db *sql.DB
 
 	mu     sync.Mutex
 	byGUID map[string]int
@@ -21,24 +20,25 @@ type Map struct {
 	next   int
 }
 
-// Open loads the mapping from path, creating it on first use.
-func Open(path string) (*Map, error) {
-	m := &Map{path: path, byGUID: map[string]int{}, byID: map[int]string{}, next: 1}
-	b, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return m, nil
-	}
+// Open loads the map from db.
+func Open(db *sql.DB) (*Map, error) {
+	m := &Map{db: db, byGUID: map[string]int{}, byID: map[int]string{}, next: 1}
+	rows, err := db.Query("SELECT id, key FROM ids")
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(b, &m.byGUID); err != nil {
-		return nil, err
-	}
-	for g, id := range m.byGUID {
-		m.byID[id] = g
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		var key string
+		if err := rows.Scan(&id, &key); err != nil {
+			return nil, err
+		}
+		m.byGUID[key] = id
+		m.byID[id] = key
 		m.next = max(m.next, id+1)
 	}
-	return m, nil
+	return m, rows.Err()
 }
 
 // ID returns the integer for a Jellyfin GUID, assigning one if needed.
@@ -52,7 +52,11 @@ func (m *Map) ID(guid string) int {
 	m.next++
 	m.byGUID[guid] = id
 	m.byID[id] = guid
-	m.saveLocked()
+	// Keep serving the ID even if it can't be saved; it just won't survive
+	// a restart.
+	if _, err := m.db.Exec("INSERT INTO ids (id, key) VALUES (?, ?)", id, guid); err != nil {
+		slog.Error("save id", "id", id, "key", guid, "err", err)
+	}
 	return id
 }
 
@@ -62,20 +66,4 @@ func (m *Map) GUID(id int) (string, bool) {
 	defer m.mu.Unlock()
 	g, ok := m.byID[id]
 	return g, ok
-}
-
-// saveLocked rewrites the whole file. Fine for dev-sized libraries; swap for a
-// real store once this matters.
-func (m *Map) saveLocked() {
-	b, err := json.Marshal(m.byGUID)
-	if err != nil {
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(m.path), 0o755); err != nil {
-		return
-	}
-	tmp := m.path + ".tmp"
-	if os.WriteFile(tmp, b, 0o644) == nil {
-		os.Rename(tmp, m.path)
-	}
 }

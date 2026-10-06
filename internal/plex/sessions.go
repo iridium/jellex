@@ -220,7 +220,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 // accountName is the name of the account a request acts as: the signed-in
-// Jellyfin user, or with JELLEX_AUTH=none the configured Jellyfin user.
+// Jellyfin user, or in dev mode the first administrator.
 func (s *Server) accountName(ctx context.Context) string {
 	if ses, ok := sessionFrom(ctx); ok {
 		return ses.UserName

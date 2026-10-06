@@ -2,18 +2,22 @@ package plex
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"regexp"
 	"strconv"
-	"sync"
+	"time"
 
 	jellyfin "github.com/sj14/jellyfin-go/api"
 )
 
-// playQueue is an ordered list of items a client is playing. Queues live in
-// memory only; clients recreate them freely.
+// playQueue is an ordered list of items a client is playing. Queues are
+// kept in the database so a client still holding a queue ID after a
+// restart can carry on; they're never changed once created.
 type playQueue struct {
 	ID       int
 	Version  int
@@ -23,34 +27,69 @@ type playQueue struct {
 	Selected int      // index into Items
 }
 
-type playQueues struct {
-	mu     sync.Mutex
-	next   int
-	byID   map[int]*playQueue
-	itemID int
+// playQueueTTL is how long play queues are kept.
+const playQueueTTL = 30 * 24 * time.Hour
+
+// addPlayQueue saves a new queue, filling in its ID and item IDs.
+func (s *Server) addPlayQueue(pq *playQueue) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec("INSERT INTO play_queues (uri, selected, created) VALUES (?, ?, ?)",
+		pq.URI, pq.Selected, time.Now().Unix())
+	if err != nil {
+		return err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+	pq.ID, pq.Version, pq.ItemIDs = int(id), 1, nil
+	for i, guid := range pq.Items {
+		res, err := tx.Exec("INSERT INTO play_queue_items (queue_id, pos, guid) VALUES (?, ?, ?)", id, i, guid)
+		if err != nil {
+			return err
+		}
+		itemID, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		pq.ItemIDs = append(pq.ItemIDs, int(itemID))
+	}
+	return tx.Commit()
 }
 
-func (q *playQueues) add(pq *playQueue) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if q.byID == nil {
-		q.byID = map[int]*playQueue{}
+// playQueue loads a queue by ID.
+func (s *Server) playQueue(id int) (*playQueue, error) {
+	pq := &playQueue{ID: id, Version: 1}
+	err := s.db.QueryRow("SELECT uri, selected FROM play_queues WHERE id = ?", id).Scan(&pq.URI, &pq.Selected)
+	if err != nil {
+		return nil, err
 	}
-	q.next++
-	pq.ID = q.next
-	pq.Version = 1
-	for range pq.Items {
-		q.itemID++
-		pq.ItemIDs = append(pq.ItemIDs, q.itemID)
+	rows, err := s.db.Query("SELECT id, guid FROM play_queue_items WHERE queue_id = ? ORDER BY pos", id)
+	if err != nil {
+		return nil, err
 	}
-	q.byID[pq.ID] = pq
+	defer rows.Close()
+	for rows.Next() {
+		var itemID int
+		var guid string
+		if err := rows.Scan(&itemID, &guid); err != nil {
+			return nil, err
+		}
+		pq.ItemIDs = append(pq.ItemIDs, itemID)
+		pq.Items = append(pq.Items, guid)
+	}
+	return pq, rows.Err()
 }
 
-func (q *playQueues) get(id int) (*playQueue, bool) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	pq, ok := q.byID[id]
-	return pq, ok
+// prunePlayQueues drops queues older than playQueueTTL.
+func (s *Server) prunePlayQueues() {
+	if _, err := s.db.Exec("DELETE FROM play_queues WHERE created < ?", time.Now().Add(-playQueueTTL).Unix()); err != nil {
+		slog.Error("prune play queues", "err", err)
+	}
 }
 
 func (s *Server) playQueueRoutes() {
@@ -110,7 +149,10 @@ func (s *Server) handleCreatePlayQueue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	pq := &playQueue{URI: uri, Items: items, Selected: start}
-	s.queues.add(pq)
+	if err := s.addPlayQueue(pq); err != nil {
+		fail(w, r, err)
+		return
+	}
 	s.writePlayQueue(w, r, pq)
 }
 
@@ -146,15 +188,22 @@ func (s *Server) createPlaylistQueue(w http.ResponseWriter, r *http.Request, pla
 	if r.URL.Query().Get("shuffle") == "1" {
 		rand.Shuffle(len(pq.Items), func(i, j int) { pq.Items[i], pq.Items[j] = pq.Items[j], pq.Items[i] })
 	}
-	s.queues.add(pq)
+	if err := s.addPlayQueue(pq); err != nil {
+		fail(w, r, err)
+		return
+	}
 	s.writePlayQueue(w, r, pq)
 }
 
 func (s *Server) handleGetPlayQueue(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
-	pq, ok := s.queues.get(id)
-	if !ok {
+	pq, err := s.playQueue(id)
+	if errors.Is(err, sql.ErrNoRows) {
 		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		fail(w, r, err)
 		return
 	}
 	s.writePlayQueue(w, r, pq)

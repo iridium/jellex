@@ -9,12 +9,11 @@ jellex emulates the Plex Media Server API on top of Jellyfin, so Plex clients
 - `internal/config` – settings from environment variables.
 - `internal/plex` – the emulated PMS API. `element.go` builds responses that
   encode as XML or JSON; `metadata.go` maps Jellyfin items to Plex metadata.
+- `internal/store` – opens the SQLite database and creates its schema.
 - `internal/ids` – persistent Jellyfin GUID ↔ Plex integer ID map. Besides
   items it holds parts, media, streams and playlist entries under prefixed
   keys (`part:…`, `stream:…`, `pli:…`); use `Server.itemGUID` when a
   ratingKey must be an item.
-- `internal/fmp4` – splits muxed fragmented MP4 into per-track streams (used
-  by the transcoder, see below).
 - `internal/auth` – Jellyfin sign-in (password and Quick Connect) and the
   persisted browser sessions; the login page and middleware are in
   `internal/plex/login.go`.
@@ -74,13 +73,11 @@ Dev setup from scratch:
 | --- | --- | --- |
 | `JELLYFIN_URL` | required | Upstream Jellyfin |
 | `JELLYFIN_API_KEY` | | Jellyfin API key |
-| `JELLEX_AUTH` | `jellyfin` | `jellyfin` (Jellyfin sign-in per browser) or `none` |
-| `JELLYFIN_USER` | first admin | With `JELLEX_AUTH=none`, the user everyone acts as |
+| `JELLEX_DEV` | `false` | Dev mode: no sign-in, everyone acts as the first Jellyfin admin. Never in deployments |
 | `JELLEX_LISTEN_ADDR` | `:32400` | Listen address |
 | `JELLEX_SERVER_NAME` | Jellyfin's server name | Name shown to clients |
-| `JELLEX_MACHINE_ID` | derived from Jellyfin server ID | Server identity; must differ between instances clients can see |
 | `JELLEX_WEB_DIR` | user cache dir | Plex Web client cache |
-| `JELLEX_DATA_DIR` | user config dir | jellex state (ID map, sessions) |
+| `JELLEX_DATA_DIR` | user config dir | jellex state (`jellex.db`) |
 | `JELLEX_DISABLE_CUSTOM_ASSETS` | `false` | Serve Plex Web exactly as shipped: no patches, branding or sign-in skip |
 
 ## Notes
@@ -93,10 +90,12 @@ Dev setup from scratch:
   Plex Web static files are public; the page that boots it and the whole
   API need a session. Sign out at `/web/logout`. Only Plex Web is supported:
   the native apps authenticate through plex.tv, which is out of scope for
-  now.
-- Plex Web also probes `127.0.0.1:32400`. When running a second jellex for
-  testing, give it a different `JELLEX_MACHINE_ID`, or the client confuses the
-  two.
+  now. Sign-in is always on except in dev mode (`JELLEX_DEV=true`), where
+  everyone acts as the first Jellyfin admin; handy for headless tests,
+  never for deployments.
+- The server identity (`machineIdentifier`) is generated on first start and
+  kept in `jellex.db`, so a second jellex for testing just needs its own
+  `JELLEX_DATA_DIR`; Plex Web keeps the two apart by that ID.
 - Unhandled routes are logged at INFO as `unhandled` with the Plex client
   query params stripped; that log is the to-do list.
 - Prefer making Plex Web behave correctly through what the API returns.
@@ -105,15 +104,18 @@ Dev setup from scratch:
   find/replace snippets with an expected match count, applied to a copy of
   the pristine client (`<web dir>-patched-<patch set hash>`, rebuilt when
   the patches change). Integrity (SRI) hashes are stripped from that copy so
-  patched files load. A patch that no longer matches fails loudly at
-  startup and jellex falls back to the unpatched client, so check the logs
+  patched files load. Plex's orange accents are rewritten to Jellyfin's
+  blue across all CSS/JS (`recolor` / `accentColors` in `patch.go`);
+  they're hard-coded in hundreds of places, so that isn't done with patch
+  blocks. A patch that no longer matches fails loudly at startup and jellex falls back to the unpatched client, so check the logs
   after bumping `PMSVersion`. Current patches: skipping plex.tv sign-in;
   branding (page title, "jellex" for "Plex Web" in settings, plus `jellexCSS` served by `branding.go`, which swaps the
   top-bar wordmark and hides the activity dashboard, account menu and server
   settings); no tracking (Sentry, analytics, Statsig in local mode); no
   server administration (`isFullOwnedServer` is always false, hiding Grant
-  Access, play history, scans, Manage Library); no loopback discovery; and
-  Skip Intro/Credits without the plex.tv account features.
+  Access, play history, scans, Manage Library); no loopback discovery;
+  Skip Intro/Credits without the plex.tv account features; and HLS instead
+  of DASH for transcodes.
   Plex Web's page is also served with a Content-Security-Policy allowing
   connections only to jellex (and scripts from Google's Cast SDK), which
   blocks plex.tv outright. Don't stub plex.tv's connection test out of the
@@ -129,19 +131,28 @@ Dev setup from scratch:
   pages with an "unclaimed server" notice; it is never claimed to plex.tv.
 - Playback: when the client offers direct play (`directPlay=1` on the
   decision), `/library/parts/...` proxies Jellyfin's static stream with Range
-  support. Otherwise jellex transcodes (`transcode.go`): Plex Web in Chrome
-  only does DASH, Jellyfin only does HLS. `start.mpd` starts a Jellyfin HLS
-  transcode with fMP4 segments, reads its playlist and writes a DASH
-  manifest; segments proxy to Jellyfin's. Shaka rejects muxed audio+video
-  in DASH, so `internal/fmp4` splits each segment into a video and an audio
-  stream. Audio track and burned-in subtitle come from the part's selected
-  streams; `stop` (or 2 minutes idle) kills Jellyfin's encoder.
+  support. Otherwise jellex transcodes (`transcode.go`) over HLS: Plex Web
+  would use DASH in Chrome, but has an experimental HLS path (hls.js) that
+  `70-hls.patch` makes unconditional. `start.m3u8` starts a Jellyfin HLS
+  transcode with fMP4 segments and returns a master playlist; the media
+  playlist lists every segment up front (VOD), so seeking just requests a
+  later segment, and init and media segments pass through from Jellyfin.
+  Audio track and burned-in subtitle come from the part's selected streams
+  (Plex Web sends `subtitles=auto` for HLS, which jellex treats as burn);
+  `stop` (or 2 minutes idle) kills Jellyfin's encoder.
 - Subtitles in direct play go through
   `/subtitles/:/transcode/universal/start`, which Plex Web renders with
   libjass and parses as ASS (not WebVTT). Jellyfin's ASS output lacks
   `PlayResX/Y`, which jellex adds or the text renders tiny in a corner.
-- Stream selections (`PUT /library/parts/{id}`), play queues, transcode
-  sessions and now-playing sessions are in memory and lost on restart.
+- Persistent state is one SQLite database, `jellex.db` in the data dir
+  (`internal/store`, pure-Go `modernc.org/sqlite`, so builds stay
+  `CGO_ENABLED=0`): the ID map (cached fully in memory), sign-in sessions,
+  stream selections (`PUT /library/parts/{id}`) and play queues (pruned
+  after 30 days). The schema is created on open (`schema` in `store.go`).
+  Transcode and now-playing sessions are in memory and lost on restart.
+- jellex has no users yet: breaking changes are fine. Don't write
+  migrations or compatibility code for old data; change the schema and
+  delete `jellex.db` if needed.
 - Some Plex Web features are gated by plex.tv account feature flags, not by
   the server. With no account they're all off; the Skip Intro/Credits
   buttons (`intro-markers` / `credits-markers`) are patched back on.
@@ -158,7 +169,7 @@ dev media plays, and it can't decode HEVC, so the Caminandes file exercises
 transcoding.
 
 A fresh headless profile first gets jellex's login page (fill `#u`/`#p` and
-submit), then Plex Web's first-run setup ("Finish Setup"), then the app.
+submit, or run with `JELLEX_DEV=true` to skip it), then Plex Web's first-run setup ("Finish Setup"), then the app.
 When checking whether a page loaded, don't only count library cards: the
 setup wizard has none.
 

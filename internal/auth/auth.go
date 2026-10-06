@@ -7,18 +7,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -30,68 +28,70 @@ const sessionTTL = 30 * 24 * time.Hour
 
 // Session is a signed-in browser.
 type Session struct {
-	UserID   string    `json:"userId"`
-	UserName string    `json:"userName"`
-	Token    string    `json:"token"` // the user's own Jellyfin access token
-	DeviceID string    `json:"deviceId"`
-	ServerID string    `json:"serverId"` // the Jellyfin server it belongs to
-	Created  time.Time `json:"created"`
-	Seen     time.Time `json:"seen"`
+	UserID   string
+	UserName string
+	Token    string // the user's own Jellyfin access token
+	DeviceID string
+	ServerID string // the Jellyfin server it belongs to
+	Created  time.Time
+	Seen     time.Time
 }
 
 // Store holds sessions, persisted so restarts don't sign everyone out.
 type Store struct {
-	path        string
+	db          *sql.DB
 	jellyfinURL string
 	serverID    string
 	http        *http.Client
-
-	mu   sync.Mutex
-	byID map[string]*Session
 }
 
-// Open loads the sessions for the Jellyfin server with the given ID.
+// Open opens the sessions for the Jellyfin server with the given ID.
 // Sessions from another server (jellex was pointed elsewhere) don't count.
-func Open(dataDir, jellyfinURL, serverID string) (*Store, error) {
+func Open(db *sql.DB, jellyfinURL, serverID string) (*Store, error) {
 	s := &Store{
-		path:        filepath.Join(dataDir, "sessions.json"),
+		db:          db,
 		jellyfinURL: strings.TrimRight(jellyfinURL, "/"),
 		serverID:    serverID,
 		http:        &http.Client{Timeout: 15 * time.Second},
-		byID:        map[string]*Session{},
 	}
-	b, err := os.ReadFile(s.path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return s, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(b, &s.byID); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", s.path, err)
-	}
-	return s, nil
+	// Forget sessions nobody will be able to use again.
+	_, err := db.Exec("DELETE FROM sessions WHERE seen < ? OR server_id != ?",
+		time.Now().Add(-sessionTTL).Unix(), serverID)
+	return s, err
+}
+
+func (s *Store) insert(id string, ses Session) error {
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO sessions
+		(id, user_id, user_name, token, device_id, server_id, created, seen)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, ses.UserID, ses.UserName, ses.Token, ses.DeviceID, ses.ServerID, ses.Created.Unix(), ses.Seen.Unix())
+	return err
 }
 
 // Get returns the session for a session ID, if it's live.
 func (s *Store) Get(id string) (Session, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ses, ok := s.byID[id]
-	if !ok {
+	var ses Session
+	var created, seen int64
+	err := s.db.QueryRow(`SELECT user_id, user_name, token, device_id, server_id, created, seen
+		FROM sessions WHERE id = ?`, id).
+		Scan(&ses.UserID, &ses.UserName, &ses.Token, &ses.DeviceID, &ses.ServerID, &created, &seen)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			slog.Error("load session", "err", err)
+		}
 		return Session{}, false
 	}
+	ses.Created, ses.Seen = time.Unix(created, 0), time.Unix(seen, 0)
 	if time.Since(ses.Seen) > sessionTTL || ses.ServerID != s.serverID {
-		delete(s.byID, id)
-		s.saveLocked()
+		s.db.Exec("DELETE FROM sessions WHERE id = ?", id)
 		return Session{}, false
 	}
-	// Only persist "seen" occasionally; it's for expiry, not auditing.
+	// Only record "seen" occasionally; it's for expiry, not auditing.
 	if time.Since(ses.Seen) > time.Hour {
 		ses.Seen = time.Now()
-		s.saveLocked()
+		s.db.Exec("UPDATE sessions SET seen = ? WHERE id = ?", ses.Seen.Unix(), id)
 	}
-	return *ses, true
+	return ses, true
 }
 
 // FromRequest returns the session named by a request's cookie.
@@ -113,19 +113,13 @@ func (s *Store) Start(ses Session) (string, error) {
 	id := hex.EncodeToString(b)
 	ses.Created, ses.Seen = time.Now(), time.Now()
 	ses.ServerID = s.serverID
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.byID[id] = &ses
-	return id, s.saveLocked()
+	return id, s.insert(id, ses)
 }
 
 // End removes a session and revokes its Jellyfin token.
 func (s *Store) End(ctx context.Context, id string) {
-	s.mu.Lock()
-	ses, ok := s.byID[id]
-	delete(s.byID, id)
-	s.saveLocked()
-	s.mu.Unlock()
+	ses, ok := s.Get(id)
+	s.db.Exec("DELETE FROM sessions WHERE id = ?", id)
 	if ok {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.jellyfinURL+"/Sessions/Logout", nil)
 		if err == nil {
@@ -135,21 +129,6 @@ func (s *Store) End(ctx context.Context, id string) {
 			}
 		}
 	}
-}
-
-func (s *Store) saveLocked() error {
-	b, err := json.Marshal(s.byID)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
 }
 
 // authHeader is Jellyfin's client authorization header. Each browser login

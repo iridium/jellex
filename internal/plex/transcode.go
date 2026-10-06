@@ -3,7 +3,6 @@ package plex
 import (
 	"bufio"
 	"context"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,15 +12,13 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/iridium/jellex/internal/fmp4"
 )
 
-// Transcoding bridges Plex's DASH transcoder API onto Jellyfin's HLS
-// transcoder. Plex Web asks for /video/:/transcode/universal/start.mpd; jellex
-// starts a Jellyfin HLS transcode with fragmented-MP4 segments, reads its
-// playlist, and writes a DASH manifest whose segments come from Jellyfin's,
-// split into separate video and audio streams.
+// Transcoding bridges Plex's transcoder API onto Jellyfin's HLS transcoder.
+// Plex Web asks for /video/:/transcode/universal/start.m3u8 (patched to use
+// HLS rather than DASH, see webui/patches/70-hls.patch); jellex starts a
+// Jellyfin HLS transcode with fragmented-MP4 segments, reads its playlist,
+// serves it with jellex URLs, and passes the segments through.
 
 const transcodeDevice = "jellex"
 
@@ -36,20 +33,7 @@ type transcodeSession struct {
 	height   int
 	bitrate  int
 	seen     time.Time
-
-	// Jellyfin muxes audio and video; DASH needs them apart. reps maps a
-	// representation ID ("0" video, "1" audio) to its track in the segments.
-	initData []byte
-	reps     map[string]uint32
-
-	mu    sync.Mutex
-	cache map[int][]byte // recent raw segments, fetched once for both reps
-	order []int
 }
-
-// maxCachedSegments bounds the raw segments kept per session. The video and
-// audio streams fetch the same segment at about the same time.
-const maxCachedSegments = 4
 
 type transcodeSessions struct {
 	mu sync.Mutex
@@ -90,9 +74,8 @@ func (t *transcodeSessions) count() int {
 
 func (s *Server) transcodeRoutes() {
 	m := s.mux
-	m.HandleFunc("GET /video/:/transcode/universal/start.mpd", s.handleTranscodeStart)
-	m.HandleFunc("GET /video/:/transcode/universal/session/{sid}/{rep}/header", s.handleTranscodeInit)
-	m.HandleFunc("GET /video/:/transcode/universal/session/{sid}/{rep}/{seg}", s.handleTranscodeSegment)
+	m.HandleFunc("GET /video/:/transcode/universal/start.m3u8", s.handleTranscodeStart)
+	m.HandleFunc("GET /video/:/transcode/universal/session/{sid}/base/{file}", s.handleTranscodeFile)
 	m.HandleFunc("GET /video/:/transcode/universal/ping", s.handleTranscodePing)
 	m.HandleFunc("GET /video/:/transcode/universal/stop", s.handleTranscodeStop)
 }
@@ -154,7 +137,9 @@ func (s *Server) resolveTranscode(ctx context.Context, q url.Values) (*transcode
 			media = append(media, c)
 		}
 	}
-	burn := q.Get("subtitles") == "burn"
+	// "auto" (what Plex Web sends for HLS) leaves it to the server; the
+	// decision told the client the selected subtitle is burned in.
+	burn := q.Get("subtitles") == "burn" || q.Get("subtitles") == "auto"
 	for _, p := range media[mediaIndex].Children {
 		for _, st := range p.Children {
 			if st.Get("selected") != true {
@@ -248,18 +233,64 @@ func (s *Server) handleTranscodeStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ts.id = sid
-	if err := s.loadInit(ctx, ts); err != nil {
-		s.stopTranscode(sid)
-		fail(w, r, fmt.Errorf("start jellyfin transcode: %w", err))
-		return
-	}
 	s.transcodes.put(ts)
 	slog.Info("transcode started", "session", sid, "item", t.item, "segments", len(ts.segments),
 		"audioIndex", t.audioIndex, "burnSubtitle", t.subtitleIndex)
 
-	w.Header().Set("Content-Type", "application/dash+xml")
-	w.Write([]byte(xml.Header))
-	w.Write(ts.manifest())
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	w.Write(ts.masterPlaylist())
+}
+
+// masterPlaylist is the HLS playlist start.m3u8 returns: one variant, the
+// session's media playlist.
+func (ts *transcodeSession) masterPlaylist() []byte {
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n")
+	fmt.Fprintf(&b, "#EXT-X-STREAM-INF:BANDWIDTH=%d", max(ts.bitrate, 1))
+	if ts.width > 0 && ts.height > 0 {
+		fmt.Fprintf(&b, ",RESOLUTION=%dx%d", ts.width, ts.height)
+	}
+	if ts.codecs != "" {
+		fmt.Fprintf(&b, `,CODECS="%s"`, ts.codecs)
+	}
+	fmt.Fprintf(&b, "\nsession/%s/base/index.m3u8\n", url.PathEscape(ts.id))
+	return []byte(b.String())
+}
+
+// mediaPlaylist lists the session's segments (relative to
+// session/{sid}/base/), all known up front, so the client can seek anywhere;
+// Jellyfin transcodes whichever segment is asked for.
+func (ts *transcodeSession) mediaPlaylist() []byte {
+	target := int64(1)
+	for _, d := range ts.durMs {
+		target = max(target, (d+999)/1000)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:%d\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MAP:URI=\"header\"\n", target)
+	for i, d := range ts.durMs {
+		fmt.Fprintf(&b, "#EXTINF:%.3f,\n%d.m4s\n", float64(d)/1000, i)
+	}
+	b.WriteString("#EXT-X-ENDLIST\n")
+	return []byte(b.String())
+}
+
+// proxyJellyfin streams a Jellyfin URL's body to w.
+func (s *Server) proxyJellyfin(w http.ResponseWriter, r *http.Request, u string) {
+	resp, err := s.jfGet(r.Context(), u)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fail(w, r, fmt.Errorf("GET %s: %s", strings.SplitN(u, "?", 2)[0], resp.Status))
+		return
+	}
+	w.Header().Set("Content-Type", "video/mp4")
+	if n := resp.Header.Get("Content-Length"); n != "" {
+		w.Header().Set("Content-Length", n)
+	}
+	io.Copy(w, resp.Body)
 }
 
 // openHLS reads a Jellyfin master playlist and its first variant's media
@@ -360,162 +391,30 @@ func parseAttrs(s string) map[string]string {
 	return out
 }
 
-// manifest renders the session as a static DASH manifest with separate
-// video and audio adaptation sets and an explicit segment timeline.
-func (ts *transcodeSession) manifest() []byte {
-	var total int64
-	var timeline strings.Builder
-	for i, d := range ts.durMs {
-		if i == 0 {
-			fmt.Fprintf(&timeline, `<S t="0" d="%d"/>`, d)
-		} else {
-			fmt.Fprintf(&timeline, `<S d="%d"/>`, d)
-		}
-		total += d
-	}
-	videoCodec, audioCodec := "avc1.640028", "mp4a.40.2"
-	for _, c := range strings.Split(ts.codecs, ",") {
-		c = strings.TrimSpace(c)
-		switch {
-		case strings.HasPrefix(c, "avc"), strings.HasPrefix(c, "hvc"), strings.HasPrefix(c, "hev"):
-			videoCodec = c
-		case strings.HasPrefix(c, "mp4a"), strings.HasPrefix(c, "ac-3"), strings.HasPrefix(c, "ec-3"), strings.HasPrefix(c, "opus"):
-			audioCodec = c
-		}
-	}
-	bw := ts.bitrate
-	if bw <= 0 {
-		bw = 4_000_000
-	}
-	sid := url.PathEscape(ts.id)
-	seg := func(rep string) string {
-		return fmt.Sprintf(`<SegmentTemplate timescale="1000" initialization="session/%s/%s/header" media="session/%s/%s/$Number$.m4s" startNumber="0"><SegmentTimeline>%s</SegmentTimeline></SegmentTemplate>`,
-			sid, rep, sid, rep, timeline.String())
-	}
-	return []byte(fmt.Sprintf(`<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" profiles="urn:mpeg:dash:profile:isoff-live:2011" type="static" minBufferTime="PT4S" mediaPresentationDuration="PT%.3fS">
-<Period id="0" start="PT0S">
-<AdaptationSet id="0" mimeType="video/mp4" contentType="video" segmentAlignment="true" startWithSAP="1">
-<Representation id="0" codecs="%s" bandwidth="%d" width="%d" height="%d">%s</Representation>
-</AdaptationSet>
-<AdaptationSet id="1" mimeType="audio/mp4" contentType="audio" segmentAlignment="true" startWithSAP="1">
-<Representation id="1" codecs="%s" bandwidth="128000" audioSamplingRate="48000"><AudioChannelConfiguration schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" value="2"/>%s</Representation>
-</AdaptationSet>
-</Period>
-</MPD>
-`, float64(total)/1000, videoCodec, bw, ts.width, ts.height, seg("0"), audioCodec, seg("1")))
-}
-
-// loadInit fetches the init segment and works out which track carries
-// video and which audio.
-func (s *Server) loadInit(ctx context.Context, ts *transcodeSession) error {
-	b, err := s.fetchBytes(ctx, ts.base+ts.init)
-	if err != nil {
-		return err
-	}
-	tracks, err := fmp4.Tracks(b)
-	if err != nil {
-		return fmt.Errorf("parse init segment: %w", err)
-	}
-	ts.initData = b
-	ts.reps = map[string]uint32{}
-	for _, t := range tracks {
-		switch t.Handler {
-		case "vide":
-			ts.reps["0"] = t.ID
-		case "soun":
-			ts.reps["1"] = t.ID
-		}
-	}
-	if ts.reps["0"] == 0 || ts.reps["1"] == 0 {
-		return fmt.Errorf("expected a video and an audio track, got %+v", tracks)
-	}
-	return nil
-}
-
-func (s *Server) fetchBytes(ctx context.Context, u string) ([]byte, error) {
-	resp, err := s.jfGet(ctx, u)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: %s", strings.SplitN(u, "?", 2)[0], resp.Status)
-	}
-	return io.ReadAll(resp.Body)
-}
-
-// segment returns raw segment n, from the cache or Jellyfin. The lock is
-// held while fetching so both streams wait on one request.
-func (s *Server) segment(ctx context.Context, ts *transcodeSession, n int) ([]byte, error) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if b, ok := ts.cache[n]; ok {
-		return b, nil
-	}
-	b, err := s.fetchBytes(ctx, ts.base+ts.segments[n])
-	if err != nil {
-		return nil, err
-	}
-	if ts.cache == nil {
-		ts.cache = map[int][]byte{}
-	}
-	ts.cache[n] = b
-	ts.order = append(ts.order, n)
-	if len(ts.order) > maxCachedSegments {
-		delete(ts.cache, ts.order[0])
-		ts.order = ts.order[1:]
-	}
-	return b, nil
-}
-
-func (s *Server) handleTranscodeInit(w http.ResponseWriter, r *http.Request) {
+// handleTranscodeFile serves session/{sid}/base/{file}: the media playlist,
+// or the init segment or a media segment passed through from Jellyfin.
+func (s *Server) handleTranscodeFile(w http.ResponseWriter, r *http.Request) {
 	ts, ok := s.transcodes.get(r.PathValue("sid"))
-	track, okRep := ts.repTrack(r.PathValue("rep"))
-	if !ok || !okRep {
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	b, err := fmp4.SplitInit(ts.initData, track)
-	if err != nil {
-		fail(w, r, err)
+	seg := r.PathValue("file")
+	switch seg {
+	case "index.m3u8":
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.Write(ts.mediaPlaylist())
+		return
+	case "header":
+		s.proxyJellyfin(w, r, ts.base+ts.init)
 		return
 	}
-	w.Header().Set("Content-Type", "video/mp4")
-	w.Write(b)
-}
-
-func (ts *transcodeSession) repTrack(rep string) (uint32, bool) {
-	if ts == nil {
-		return 0, false
-	}
-	t, ok := ts.reps[rep]
-	return t, ok
-}
-
-func (s *Server) handleTranscodeSegment(w http.ResponseWriter, r *http.Request) {
-	ts, ok := s.transcodes.get(r.PathValue("sid"))
-	track, okRep := ts.repTrack(r.PathValue("rep"))
-	if !ok || !okRep {
-		http.NotFound(w, r)
-		return
-	}
-	n, err := strconv.Atoi(strings.TrimSuffix(r.PathValue("seg"), ".m4s"))
+	n, err := strconv.Atoi(strings.TrimSuffix(seg, ".m4s"))
 	if err != nil || n < 0 || n >= len(ts.segments) {
 		http.NotFound(w, r)
 		return
 	}
-	raw, err := s.segment(r.Context(), ts, n)
-	if err != nil {
-		fail(w, r, err)
-		return
-	}
-	b, err := fmp4.SplitSegment(raw, track)
-	if err != nil {
-		fail(w, r, err)
-		return
-	}
-	w.Header().Set("Content-Type", "video/mp4")
-	w.Write(b)
+	s.proxyJellyfin(w, r, ts.base+ts.segments[n])
 }
 
 func (s *Server) handleTranscodePing(w http.ResponseWriter, r *http.Request) {
@@ -547,15 +446,16 @@ func (s *Server) stopTranscode(sid string) {
 }
 
 // transcodeDecision answers a decision request the client made without
-// direct play: Plex will stream a DASH transcode of the item.
+// direct play: Plex will stream an HLS transcode of the item.
 func (s *Server) transcodeDecision(md *Element, mediaIndex int) *Element {
+	const protocol = "hls"
 	i := 0
 	for _, c := range md.Children {
 		if c.Tag != "Media" {
 			continue
 		}
 		if i == mediaIndex {
-			c.A("selected", true).A("protocol", "dash").A("container", "mp4").
+			c.A("selected", true).A("protocol", protocol).A("container", "mp4").
 				A("videoCodec", "h264").A("audioCodec", "aac").A("audioChannels", 2)
 			for _, p := range c.Children {
 				if p.Tag != "Part" {

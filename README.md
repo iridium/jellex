@@ -7,9 +7,8 @@
 
 > [!NOTE]
 > **Not production software.** jellex was written entirely by an LLM
-> (Claude) in about two hours of directed sessions. Nobody has reviewed it
-> line by line, it has almost no tests, and it has not been used outside a dev
-> setup. Expect bugs, missing features and rough edges. Don't point it at
+> (Claude) in directed sessions. Nobody has reviewed it line by line, it has
+> few tests, and it has not been used outside a dev setup. Expect bugs, missing features and rough edges. Don't point it at
 > anything you can't afford to lose, and don't expose it to the internet.
 
 jellex lets Plex clients use a [Jellyfin](https://jellyfin.org) server. It
@@ -63,8 +62,6 @@ Tested against Plex Web 4.160 with a small library of movies, shows and music:
 - Only Plex Web. The Plex mobile and TV apps sign in through plex.tv and find
   servers there, which jellex doesn't support.
 - Picture-based subtitles (PGS, VobSub) only work when burned in.
-- Stream selections and play queues are kept in memory and reset when jellex
-  restarts.
 - Admin features (metadata editing, matching, server settings) are out of
   scope on purpose.
 
@@ -91,9 +88,6 @@ Sign in with a Jellyfin username and password, or choose Quick Connect and
 approve the code from a Jellyfin app you're already signed in to. Sign out
 at http://localhost:32400/web/logout. The first time a browser opens Plex
 Web it walks through a short setup ("Finish Setup").
-
-`JELLEX_AUTH=none` turns sign-in off: anyone who can reach jellex gets in
-and acts as `JELLYFIN_USER`.
 
 ### Without Docker
 
@@ -124,15 +118,13 @@ All settings, with comments, are in [.env.example](.env.example).
 | --- | --- | --- |
 | `JELLYFIN_URL` | required | Your Jellyfin server |
 | `JELLYFIN_API_KEY` | required | Jellyfin API key |
-| `JELLEX_AUTH` | `jellyfin` | `jellyfin`: sign in with a Jellyfin account. `none`: no sign-in |
-| `JELLYFIN_USER` | first admin | With `JELLEX_AUTH=none`, the Jellyfin user everyone acts as |
 | `JELLEX_SERVER_NAME` | Jellyfin's server name | Server name shown in Plex Web |
 | `JELLEX_LISTEN_ADDR` | `:32400` | Listen address |
-| `JELLEX_MACHINE_ID` | derived from Jellyfin | Server identity |
-| `JELLEX_DISABLE_CUSTOM_ASSETS` | `false` | Serve Plex Web exactly as shipped: no patches, branding or privacy protections (it will then ask for a plex.tv sign-in) |
+| `JELLEX_DISABLE_CUSTOM_ASSETS` | `false` | Serve Plex Web exactly as shipped: no patches, branding or privacy protections (it will then ask for a plex.tv sign-in, and files that need transcoding won't play) |
 
-State lives in `/data`: an ID map that keeps Plex item IDs stable, and
-sign-in sessions. Back up that volume to keep links and sessions across
+State lives in one SQLite database, `/data/jellex.db`: the map that keeps
+Plex item IDs stable, sign-in sessions, chosen audio and subtitle tracks,
+and play queues. Back up that volume to keep links and sessions across
 reinstalls.
 
 ## Development
@@ -142,10 +134,4 @@ generated test media, a setup script, and how the code is laid out.
 
 ## Legal
 
-jellex is not affiliated with Plex or Jellyfin. It doesn't include or
-redistribute Plex software: the Plex Web client is downloaded from Plex's
-own servers at runtime. By default jellex applies small patches to a local
-copy of it (skipping the plex.tv sign-in, turning off tracking, hiding
-server-admin UI, enabling Skip Intro/Credits, and jellex branding); the patch files in
-`internal/webui/patches/` contain short snippets of the client's code. Set
-`JELLEX_DISABLE_CUSTOM_ASSETS=true` to serve the client exactly as shipped.
+jellex is not affiliated with Plex or Jellyfin.

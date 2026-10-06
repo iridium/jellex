@@ -190,11 +190,17 @@ func (s *Server) sectionHubs(ctx context.Context, sec *section, limit int) ([]*E
 	return hubs, nil
 }
 
+// recentlyAddedType is what a section's recently added items are: movies,
+// albums, or a mix of shows, seasons and episodes.
+func recentlyAddedType(sec *section) string {
+	return map[string]string{"movie": "movie", "show": "mixed", "artist": "album"}[sec.Type]
+}
+
 // recentlyAddedHub is a section's "Recently Added" hub. Its type sets the
 // card shape in Plex Web: "album" gets square cards, the others posters.
 func recentlyAddedHub(sec *section, items []*Element, limit int) *Element {
 	title := map[string]string{"movie": "Recently Added Movies", "show": "Recently Added TV", "artist": "Recently Added Music"}[sec.Type]
-	typ := map[string]string{"movie": "movie", "show": "mixed", "artist": "album"}[sec.Type]
+	typ := recentlyAddedType(sec)
 	ident := map[string]string{"movie": "movie.recentlyadded", "show": "tv.recentlyadded", "artist": "music.recent.added"}[sec.Type]
 	return hub(title, ident, fmt.Sprintf("/library/sections/%d/recentlyAdded", sec.ID), typ, "hub."+ident, items, limit)
 }

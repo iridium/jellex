@@ -81,7 +81,16 @@ func (s *Server) handleRecentlyAddedList(w http.ResponseWriter, r *http.Request)
 		fail(w, r, err)
 		return
 	}
-	writeList(w, r, s.sectionContainer(sec).A("title2", "Recently Added"), items)
+	mc := s.sectionContainer(sec).A("title2", "Recently Added")
+	// Plex Web shapes the cards of this "see all" grid by the active type
+	// in the Meta block, as on the library page: square for albums.
+	if t, ok := map[string]int{"movie": 1, "artist": 9}[sec.Type]; ok {
+		mc.A("viewGroup", plexTypes[plexTypeNums[t]])
+		if r.URL.Query().Get("includeMeta") == "1" {
+			mc.Add(s.sectionMeta(sec, t, "addedAt:desc"))
+		}
+	}
+	writeList(w, r, mc, items)
 }
 
 func (s *Server) sectionContainer(sec *section) *Element {
