@@ -83,11 +83,9 @@ export function normalizeServerUrl(input: string): string {
 	return url.replace(/\/+$/, '');
 }
 
-/** The server URL to suggest on the sign-in page. */
+/** The server URL to prefill on the sign-in page: the last one used, or none. */
 export function defaultServerUrl(): string {
-	// In dev there's no Jellyfin next to the app, so suggest Jellyfin's
-	// public demo server; a deployment usually sits beside its Jellyfin.
-	return read(SERVER_KEY) ?? (import.meta.env.DEV ? DEMO_SERVER : location.origin);
+	return read(SERVER_KEY) ?? '';
 }
 
 let api = $state<Api | null>(null);
