@@ -1,8 +1,0 @@
-.git
-dev
-.env
-ref
-AGENTS.md
-scripts
-*.md
-compose*.yaml

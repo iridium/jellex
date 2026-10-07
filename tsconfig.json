@@ -1,0 +1,13 @@
+{
+	"extends": "$app/tsconfig",
+	"compilerOptions": {
+		"strict": true,
+		// Also set by $app/tsconfig; repeated so editors that don't follow
+		// that extends still accept the ".ts" import paths #lib/* needs.
+		"allowImportingTsExtensions": true,
+		"moduleResolution": "bundler",
+		"module": "esnext",
+		"noEmit": true
+	},
+	"include": ["src", "vite.config.ts"]
+}

@@ -1,8 +1,0 @@
-# Use the server without a plex.tv account. Plex Web normally sends the
-# browser to plex.tv's sign-in unless a "skipSignIn" flag is in its
-# storage; read that flag as always set.
-file: js/main-*.js
---- find
-e.set("skipSignIn","1"===t)
---- replace
-e.set("skipSignIn",!0)

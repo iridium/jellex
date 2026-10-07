@@ -1,8 +1,0 @@
-# Skip Intro / Skip Credits. The player keeps intro and credits markers only
-# if the plex.tv account has the intro-markers / credits-markers features
-# (r and n here). There is no plex.tv account, so treat both as on.
-file: js/main-*.js
---- find
-r&&t.type===fC||"addToWatchlist"===t.type||(e.isLibraryItem&&n||!e.isLibraryItem)&&t.type===gC
---- replace
-t.type===fC||"addToWatchlist"===t.type||t.type===gC

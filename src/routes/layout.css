@@ -1,0 +1,175 @@
+@import 'tailwindcss';
+@import '@fontsource/figtree/500.css';
+@import '@fontsource/figtree/700.css';
+@import '../lib/styles/tokens.css';
+
+/*
+ * Base styles copied from Plex Web (values measured from the running client
+ * in ref/). Components use Plex's token names (var(--color-text-primary),
+ * var(--size-m), …) and Plex's pixel sizes.
+ *
+ * Plex's headings use PlexCircular, a commercial font licensed to Plex; it
+ * isn't redistributable, so Figtree (the closest free geometric sans) stands
+ * in for it.
+ */
+:root {
+	color-scheme: dark;
+	--font-heading:
+		'Figtree', 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans,
+		Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+	--font-system:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+		'Helvetica Neue', sans-serif;
+	--font-display-1-font-family: var(--font-heading);
+	--font-display-2-font-family: var(--font-heading);
+	--font-display-3-font-family: var(--font-heading);
+	--font-heading-1-font-family: var(--font-heading);
+	--font-heading-2-font-family: var(--font-heading);
+	--font-heading-3-font-family: var(--font-heading);
+	--font-heading-4-font-family: var(--font-heading);
+
+	/* Plex Web's fixed layout metrics. */
+	--navbar-height: 48px;
+	--sidebar-width: 260px;
+	--page-gutter: 40px;
+}
+
+html,
+body {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	overflow: hidden;
+	background: #3f4245;
+	color: #eee;
+	font-family: var(--font-system);
+	font-size: 14px;
+	line-height: 1.71428571;
+	-webkit-font-smoothing: antialiased;
+	-webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * Plex's default "ultrablur" backdrop: four corner radial gradients over
+ * black (FullPageBackground). Detail pages tint these from the artwork.
+ */
+.ultrablur {
+	position: fixed;
+	inset: 0;
+	z-index: -3;
+	background:
+		radial-gradient(
+			circle farthest-side at 0% 100%,
+			var(--color-ultrablur-bl) 0%,
+			transparent 100%
+		),
+		radial-gradient(
+			circle farthest-side at 100% 100%,
+			var(--color-ultrablur-br) 0%,
+			transparent 100%
+		),
+		radial-gradient(
+			circle farthest-side at 100% 0%,
+			var(--color-ultrablur-tr) 0%,
+			transparent 100%
+		),
+		radial-gradient(circle farthest-side at 0% 0%, var(--color-ultrablur-tl) 0%, transparent 100%),
+		#000;
+}
+
+/* The default corner colours (Plex's ultrablur when nothing tints it). */
+:root {
+	--color-ultrablur-tl: #333;
+	--color-ultrablur-tr: #202020;
+	--color-ultrablur-br: #262626;
+	--color-ultrablur-bl: #1c1c1c;
+}
+
+a {
+	color: inherit;
+	text-decoration: none;
+}
+
+button {
+	font: inherit;
+	color: inherit;
+	background: none;
+	border: 0;
+	padding: 0;
+	margin: 0;
+	cursor: pointer;
+}
+
+/* Plex: .tvbry60 */
+:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 var(--size-focusRing) var(--color-keyboard-focus);
+}
+
+/* Plex: Link-link + Link-default. */
+.link {
+	color: hsla(0, 0%, 100%, 0.7);
+	transition: color 0.2s;
+	user-select: none;
+}
+.link:hover {
+	color: #fff;
+}
+
+/* Plex: Scroller-scroller, the in-page scroll areas. */
+.scroller {
+	-webkit-overflow-scrolling: touch;
+	scrollbar-color: hsla(0, 0%, 100%, 0.2) transparent;
+}
+
+/* Plex: .dark-scrollbar */
+.dark-scrollbar::-webkit-scrollbar {
+	width: 15px;
+}
+.dark-scrollbar::-webkit-scrollbar-track {
+	background-color: rgba(0, 0, 0, 0.2);
+}
+.dark-scrollbar::-webkit-scrollbar-thumb {
+	background-clip: padding-box;
+	background-color: hsla(0, 0%, 100%, 0.15);
+	border: 3px solid transparent;
+	border-radius: 8px;
+	min-height: 50px;
+}
+.dark-scrollbar::-webkit-scrollbar-thumb:hover {
+	background-color: hsla(0, 0%, 100%, 0.25);
+}
+.no-scrollbar {
+	scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+	display: none;
+}
+
+/* Plex's shared keyframes. */
+@keyframes fade-in {
+	0% {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+@keyframes fade-out {
+	0% {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+@keyframes spin {
+	0% {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(1turn);
+	}
+}

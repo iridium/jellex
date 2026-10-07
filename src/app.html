@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="text-scale" content="scale" />
+		<meta
+			name="description"
+			content="jellex is a Plex Web-style client for Jellyfin: browse and play your Jellyfin library with Plex's interface, straight from the browser."
+		/>
+		<meta name="theme-color" content="#1f1f1f" />
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="jellex" />
+		<meta property="og:title" content="jellex" />
+		<meta
+			property="og:description"
+			content="A Plex Web-style client for Jellyfin. Sign in to your server, or try it with Jellyfin's demo."
+		/>
+		<meta property="og:url" content="https://jellex.x86.cx" />
+		<meta property="og:image" content="https://jellex.x86.cx/og-image.png" />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		<meta name="twitter:card" content="summary_large_image" />
+		<style>
+			/* Plex Web's boot screen (.plex-preloader-container.plex-logo): the
+			   wordmark centred at a quarter of the window's width on #1f1f1f,
+			   only on the first load of a browser session. The root layout
+			   removes it once the app has rendered. */
+			#preloader {
+				position: fixed;
+				inset: 0;
+				z-index: 1000;
+				background-color: #1f1f1f;
+				background-position: 50%;
+				background-repeat: no-repeat;
+				background-size: 25%;
+			}
+			#preloader.logo {
+				background-image: url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 -2 133.20 51%22 width=%22133%22 height=%2251%22%3E %3Cdefs%3E%3ClinearGradient id=%22jx%22 x1=%220%22 y1=%220%22 x2=%221%22 y2=%221%22%3E%3Cstop offset=%220%22 stop-color=%22%23AA5CC3%22/%3E%3Cstop offset=%221%22 stop-color=%22%2300A4DC%22/%3E%3C/linearGradient%3E%3C/defs%3E %3Cpath d=%22M42.5294 23.2691C42.5294 26.5691 42.8946 30.5737 46.1483 34.9533C46.2118 35.0384 46.3896 35.2528 46.3896 35.2528C45.0741 37.5109 43.4171 39.03 41.2462 39.03C39.5332 39.03 37.8611 38.124 36.4681 36.5445C34.9791 34.8563 34.2681 32.652 34.2681 30.3572V0H42.5315L42.5283 23.2691H42.5294Z%22 transform=%22translate(46.39 9.5) scale(-1 1)%22 fill=%22%23FFFFFF%22/%3E %3Ccircle cx=%227.99%22 cy=%222.4%22 r=%224.13%22 fill=%22%23FFFFFF%22/%3E %3Cpath d=%22M65.8599 29.8906C64.1975 31.4237 63.0641 32.3115 60.7014 32.3115C56.5148 32.3115 54.1682 29.3897 53.8246 26.1274H75.8687C76.0077 25.6813 76.0982 25.1265 76.0982 24.2096C76.0982 15.2814 69.5726 8.58447 60.988 8.58447C52.4035 8.58447 46.1073 15.3956 46.1073 23.9231C46.1073 32.4505 52.8032 39.0332 61.1604 39.0332C66.9955 39.0332 72.0333 35.6945 74.8032 29.8896H65.861L65.8599 29.8906ZM61.0419 15.345C64.692 15.345 67.4232 17.7529 68.0524 20.8999H54.095C54.8502 17.5644 57.3918 15.345 61.043 15.345H61.0419Z%22 transform=%22translate(-30.41 0)%22 fill=%22%23FFFFFF%22/%3E %3Cpath d=%22M42.5294 23.2691C42.5294 26.5691 42.8946 30.5737 46.1483 34.9533C46.2118 35.0384 46.3896 35.2528 46.3896 35.2528C45.0741 37.5109 43.4171 39.03 41.2462 39.03C39.5332 39.03 37.8611 38.124 36.4681 36.5445C34.9791 34.8563 34.2681 32.652 34.2681 30.3572V0H42.5315L42.5283 23.2691H42.5294Z%22 transform=%22translate(14.55 0)%22 fill=%22%23FFFFFF%22/%3E %3Cpath d=%22M42.5294 23.2691C42.5294 26.5691 42.8946 30.5737 46.1483 34.9533C46.2118 35.0384 46.3896 35.2528 46.3896 35.2528C45.0741 37.5109 43.4171 39.03 41.2462 39.03C39.5332 39.03 37.8611 38.124 36.4681 36.5445C34.9791 34.8563 34.2681 32.652 34.2681 30.3572V0H42.5315L42.5283 23.2691H42.5294Z%22 transform=%22translate(29.05 0)%22 fill=%22%23FFFFFF%22/%3E %3Cg transform=%22translate(29.05 0)%22%3E %3Cpath d=%22M65.8599 29.8906C64.1975 31.4237 63.0641 32.3115 60.7014 32.3115C56.5148 32.3115 54.1682 29.3897 53.8246 26.1274H75.8687C76.0077 25.6813 76.0982 25.1265 76.0982 24.2096C76.0982 15.2814 69.5726 8.58447 60.988 8.58447C52.4035 8.58447 46.1073 15.3956 46.1073 23.9231C46.1073 32.4505 52.8032 39.0332 61.1604 39.0332C66.9955 39.0332 72.0333 35.6945 74.8032 29.8896H65.861L65.8599 29.8906ZM61.0419 15.345C64.692 15.345 67.4232 17.7529 68.0524 20.8999H54.095C54.8502 17.5644 57.3918 15.345 61.043 15.345H61.0419Z%22 fill=%22%23FFFFFF%22/%3E %3Cpath d=%22M83.2283 38.1208H73.2884L82.9363 23.8186L73.2884 9.50464H83.2283L92.8751 23.8186L83.2283 38.1208Z%22 fill=%22url(%23jx)%22/%3E %3Cpath d=%22M95.5265 22.1972L104.15 9.50464H94.1712L90.5361 14.7935L95.5265 22.1972Z%22 fill=%22%23FFFFFF%22/%3E %3Cpath d=%22M90.5361 32.8965C90.5383 32.903 92.2276 35.2527 92.2276 35.2527C93.8587 37.8104 95.951 39.0257 98.4451 39.0354C101.032 38.9891 102.874 36.6964 103.55 35.8927C103.55 35.8916 102.273 34.7679 100.691 32.89C98.5378 30.3324 95.6364 25.6856 95.5265 25.4863L90.5372 32.8976L90.5361 32.8965Z%22 fill=%22%23FFFFFF%22/%3E %3C/g%3E %3C/svg%3E');
+			}
+		</style>
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div id="preloader" class="logo"></div>
+		<script>
+			try {
+				if (sessionStorage.getItem('jellex.splashSeen') === '1')
+					document.getElementById('preloader').classList.remove('logo');
+				else sessionStorage.setItem('jellex.splashSeen', '1');
+			} catch {}
+		</script>
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

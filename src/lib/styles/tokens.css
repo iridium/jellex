@@ -1,0 +1,292 @@
+/*
+ * Plex Web's "chroma dark" design tokens, copied verbatim from the pinned
+ * client (ref/) with its orange accent recoloured to Jellyfin blue. Names
+ * match Plex's so CSS lifted from Plex Web works unchanged.
+ */
+:root {
+	--color-brand-accent: #00a4dc;
+	/* jellex: the accent's darker and lighter shades (Plex's #cc7b19 and
+	   #f9be03, recoloured). Settings > Theme overrides all accent tokens. */
+	--color-accent-dark: #0083b0;
+	--color-accent-light: #2cb9ec;
+	--color-static-perrywinkle: #8af;
+	--color-static-yellow: #00a4dc;
+	--color-static-grey-1: #282a2d;
+	--color-static-grey-2: #3f4245;
+	--color-static-grey-3: #575b61;
+	--color-static-grey-4: #868c96;
+	--color-static-grey-5: #b3bac1;
+	--color-static-grey-6: #e0e3e6;
+	--color-static-grey-7: #f2f3f4;
+	--color-static-grey-8: #f9f9f9;
+	--color-static-white: #fff;
+	--color-static-red: #c72c05;
+	--color-static-green: #4db288;
+	--color-brand-black: #191919;
+	--color-brand-white: #fffbf8;
+	--color-brand-gold: #f7c600;
+	--color-brand-blue: #15a9fc;
+	--color-brand-cerise: #f74366;
+	--color-brand-sea-green: #69dd58;
+	--color-brand-orange: #c14f30;
+	--color-brand-deep-purple: #322d5b;
+	--color-brand-maroon: #5b2244;
+	--color-brand-forest: #112f27;
+	--color-alert-highlight: #f93706;
+	--color-confirm-highlight: #4db288;
+	--color-overlay-background: #1f1f1f;
+	--color-text-primary: #fff;
+	--color-text-default: #ffffffcc;
+	--color-text-muted: #ffffff99;
+	--color-text-accent: #00a4dc;
+	--color-text-alert: #f93706;
+	--color-text-confirm: #366350;
+	--color-text-on-focus: #1c1c1c;
+	--color-text-on-accent: #1c1c1c;
+	--color-text-on-alert: #fff;
+	--color-text-on-confirm: #fff;
+	--color-background-backdrop: #000000cc;
+	--color-background-control: #ffffff1a;
+	--color-background-card: #0000004d;
+	--color-background-modal: #1c1c1c;
+	--color-background-focus: #fff;
+	--color-background-accent: #00a4dc;
+	--color-background-alert: #952104;
+	--color-background-alert-muted: #190501;
+	--color-background-confirm: #366350;
+	--color-background-success: #08120e;
+	--color-background-informative: #0a0f19;
+	--color-background-accent-focus: #2cb9ec;
+	--color-background-alert-focus: #a12303;
+	--color-background-control-focus: #ffffff2e;
+	--color-highlight-focus: #fff;
+	--color-highlight-control-focus: #88aaffcc;
+	--color-highlight-alert: #f93706;
+	--color-highlight-success: #4db288;
+	--color-highlight-informative: #69f;
+	--color-highlight-modal: #0000004d;
+	--color-primary-background-100: #fff;
+	--color-primary-background-80: #ffffffcc;
+	--color-primary-background-60: #ffffff99;
+	--color-primary-background-30: #ffffff4d;
+	--color-primary-background-10: #ffffff1a;
+	--color-primary-background-5: #ffffff0d;
+	--color-primary-foreground-100: #fff;
+	--color-primary-foreground-80: #ffffffcc;
+	--color-primary-foreground-60: #ffffff99;
+	--color-primary-foreground-30: #ffffff4d;
+	--color-primary-foreground-10: #ffffff1a;
+	--color-primary-foreground-5: #ffffff0d;
+	--color-surface-background-100: #000;
+	--color-surface-background-80: #000000cc;
+	--color-surface-background-60: #00000099;
+	--color-surface-background-30: #0000004d;
+	--color-surface-background-10: #0000001a;
+	--color-surface-background-5: #0000000d;
+	--color-surface-foreground-100: #fff;
+	--color-surface-foreground-80: #ffffffcc;
+	--color-surface-foreground-60: #ffffff99;
+	--color-surface-foreground-30: #ffffff4d;
+	--color-surface-foreground-10: #ffffff1a;
+	--color-surface-foreground-5: #ffffff0d;
+	--color-ultrablur-tl: #171717;
+	--color-ultrablur-tr: #1c1c1c;
+	--color-ultrablur-br: #414141;
+	--color-ultrablur-bl: #272727;
+	--color-menu: #202629;
+	--color-keyboard-focus: #8af;
+	--font-display-1-font-size: clamp(2.5rem, 2.667vw + 1.5rem, 3.5rem);
+	--font-display-1-text-decoration: none;
+	--font-display-1-letter-spacing: 0;
+	--font-display-1-font-weight: 700;
+	--font-display-1-font-style: normal;
+	--font-display-1-font-stretch: normal;
+	--font-display-1-font-family:
+		'PlexCircular', 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans,
+		Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+	--font-display-1-line-height: clamp(3rem, 2.667vw + 2rem, 4rem);
+	--font-display-1-text-transform: none;
+	--font-display-2-font-size: clamp(2rem, 2.667vw + 1rem, 3rem);
+	--font-display-2-text-decoration: none;
+	--font-display-2-letter-spacing: 0;
+	--font-display-2-font-weight: 700;
+	--font-display-2-font-style: normal;
+	--font-display-2-font-stretch: normal;
+	--font-display-2-font-family:
+		'PlexCircular', 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans,
+		Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+	--font-display-2-line-height: clamp(2.5rem, 4vw + 1rem, 4rem);
+	--font-display-2-text-transform: none;
+	--font-display-3-font-size: clamp(1.75rem, 2vw + 1rem, 2.5rem);
+	--font-display-3-text-decoration: none;
+	--font-display-3-letter-spacing: 0;
+	--font-display-3-font-weight: 700;
+	--font-display-3-font-style: normal;
+	--font-display-3-font-stretch: normal;
+	--font-display-3-font-family:
+		'PlexCircular', 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans,
+		Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+	--font-display-3-line-height: clamp(2rem, 2.667vw + 1rem, 3rem);
+	--font-display-3-text-transform: none;
+	--font-display-copy-font-size: clamp(1rem, 0.333vw + 0.875rem, 1.125rem);
+	--font-display-copy-text-decoration: none;
+	--font-display-copy-letter-spacing: 0;
+	--font-display-copy-font-weight: 500;
+	--font-display-copy-font-style: normal;
+	--font-display-copy-font-stretch: normal;
+	--font-display-copy-font-family:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+		'Helvetica Neue', sans-serif;
+	--font-display-copy-line-height: 1.5rem;
+	--font-display-copy-text-transform: none;
+	--font-heading-1-font-size: clamp(1.75rem, 0.667vw + 1.5rem, 2rem);
+	--font-heading-1-text-decoration: none;
+	--font-heading-1-letter-spacing: 0;
+	--font-heading-1-font-weight: 700;
+	--font-heading-1-font-style: normal;
+	--font-heading-1-font-stretch: normal;
+	--font-heading-1-font-family:
+		'PlexCircular', 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans,
+		Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+	--font-heading-1-line-height: clamp(2rem, 1.333vw + 1.5rem, 2.5rem);
+	--font-heading-1-text-transform: none;
+	--font-heading-2-font-size: clamp(1.125rem, 0.501vw + 0.937rem, 1.313rem);
+	--font-heading-2-text-decoration: none;
+	--font-heading-2-letter-spacing: 0;
+	--font-heading-2-font-weight: 700;
+	--font-heading-2-font-style: normal;
+	--font-heading-2-font-stretch: normal;
+	--font-heading-2-font-family:
+		'PlexCircular', 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans,
+		Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+	--font-heading-2-line-height: clamp(1.5rem, 1.333vw + 1rem, 2rem);
+	--font-heading-2-text-transform: none;
+	--font-heading-3-font-size: 1rem;
+	--font-heading-3-text-decoration: none;
+	--font-heading-3-letter-spacing: 0;
+	--font-heading-3-font-weight: 700;
+	--font-heading-3-font-style: normal;
+	--font-heading-3-font-stretch: normal;
+	--font-heading-3-font-family:
+		'PlexCircular', 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans,
+		Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+	--font-heading-3-line-height: 1.5rem;
+	--font-heading-3-text-transform: none;
+	--font-heading-4-font-size: 0.875rem;
+	--font-heading-4-text-decoration: none;
+	--font-heading-4-letter-spacing: 0;
+	--font-heading-4-font-weight: 700;
+	--font-heading-4-font-style: normal;
+	--font-heading-4-font-stretch: normal;
+	--font-heading-4-font-family:
+		'PlexCircular', 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans,
+		Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+	--font-heading-4-line-height: 1.25rem;
+	--font-heading-4-text-transform: none;
+	--font-body-1-font-size: 1rem;
+	--font-body-1-text-decoration: none;
+	--font-body-1-letter-spacing: 0;
+	--font-body-1-font-weight: 400;
+	--font-body-1-font-style: normal;
+	--font-body-1-font-stretch: normal;
+	--font-body-1-font-family:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+		'Helvetica Neue', sans-serif;
+	--font-body-1-line-height: 1.5rem;
+	--font-body-1-text-transform: none;
+	--font-body-2-font-size: 0.875rem;
+	--font-body-2-text-decoration: none;
+	--font-body-2-letter-spacing: 0;
+	--font-body-2-font-weight: 400;
+	--font-body-2-font-style: normal;
+	--font-body-2-font-stretch: normal;
+	--font-body-2-font-family:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+		'Helvetica Neue', sans-serif;
+	--font-body-2-line-height: 1.25rem;
+	--font-body-2-text-transform: none;
+	--font-body-3-font-size: 0.75rem;
+	--font-body-3-text-decoration: none;
+	--font-body-3-letter-spacing: 0;
+	--font-body-3-font-weight: 400;
+	--font-body-3-font-style: normal;
+	--font-body-3-font-stretch: normal;
+	--font-body-3-font-family:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+		'Helvetica Neue', sans-serif;
+	--font-body-3-line-height: 1rem;
+	--font-body-3-text-transform: none;
+	--font-button-1-font-size: 1rem;
+	--font-button-1-text-decoration: none;
+	--font-button-1-letter-spacing: 0;
+	--font-button-1-font-weight: 600;
+	--font-button-1-font-style: normal;
+	--font-button-1-font-stretch: normal;
+	--font-button-1-font-family:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+		'Helvetica Neue', sans-serif;
+	--font-button-1-line-height: 1.5rem;
+	--font-button-1-text-transform: none;
+	--font-button-2-font-size: 0.875rem;
+	--font-button-2-text-decoration: none;
+	--font-button-2-letter-spacing: 0;
+	--font-button-2-font-weight: 600;
+	--font-button-2-font-style: normal;
+	--font-button-2-font-stretch: normal;
+	--font-button-2-font-family:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+		'Helvetica Neue', sans-serif;
+	--font-button-2-line-height: 1.25rem;
+	--font-button-2-text-transform: none;
+	--font-caption-font-size: 0.75rem;
+	--font-caption-text-decoration: none;
+	--font-caption-letter-spacing: 0;
+	--font-caption-font-weight: 600;
+	--font-caption-font-style: normal;
+	--font-caption-font-stretch: normal;
+	--font-caption-font-family:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+		'Helvetica Neue', sans-serif;
+	--font-caption-line-height: 1rem;
+	--font-caption-text-transform: none;
+	--font-tiny-font-size: 0.625rem;
+	--font-tiny-text-decoration: none;
+	--font-tiny-letter-spacing: 0;
+	--font-tiny-font-weight: 500;
+	--font-tiny-font-style: normal;
+	--font-tiny-font-stretch: normal;
+	--font-tiny-font-family:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+		'Helvetica Neue', sans-serif;
+	--font-tiny-line-height: 1rem;
+	--font-tiny-text-transform: none;
+	--size-xxxl: 4rem;
+	--size-xxl: 3rem;
+	--size-xl: 2rem;
+	--size-l: 1.5rem;
+	--size-m: 1rem;
+	--size-s: 0.75rem;
+	--size-xs: 0.5rem;
+	--size-xxs: 0.25rem;
+	--size-xxxs: 0.125rem;
+	--size-none: 0;
+	--size-focusRing: 2px;
+	--shadow-low: 0rem 0.25rem 0.25rem 0rem #00000033;
+	--shadow-high: 0rem 0.25rem 1rem 0rem #00000033;
+	--shadow-ultra-high: 0.375rem 0.375rem 0.938rem 0rem #00000040;
+	--shadow-modal-footer: 0rem -4px 0.625rem 0rem #00000040;
+	--duration-fast: 0.1s;
+	--duration-slow: 0.3s;
+	--duration-very-slow: 0.6s;
+	--ultrablur-max-brightness: 30;
+	--ultrablur-min-brightness: 0;
+	--ultrablur-max-saturation: 100;
+	--ultrablur-min-saturation: 0;
+	--opacity-artwork-mask: 1;
+	--border-radius-xs: 0.125rem;
+	--border-radius-s: 0.25rem;
+	--border-radius-m: 0.5rem;
+	--border-radius-l: 1rem;
+	--border-radius-max: 624.938rem;
+	--zIndex-overlay: 1000;
+}
