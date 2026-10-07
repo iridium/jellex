@@ -133,8 +133,14 @@ Dev setup from scratch:
   decision), `/library/parts/...` proxies Jellyfin's static stream with Range
   support. Otherwise jellex transcodes (`transcode.go`) over HLS: Plex Web
   would use DASH in Chrome, but has an experimental HLS path (hls.js) that
-  `70-hls.patch` makes unconditional. `start.m3u8` starts a Jellyfin HLS
-  transcode with fMP4 segments and returns a master playlist; the media
+  `70-hls.patch` makes unconditional. Jellyfin decides what to copy and
+  what to re-encode (`playbackinfo.go`): jellex describes the browser as a
+  device profile (H.264, plus the source codec when Plex Web sends
+  `directStream=1`, i.e. it checked it can decode it; no Dolby Vision; the
+  client's bitrate and resolution limits) and uses the HLS URL Jellyfin's
+  PlaybackInfo returns. Copied video is reported as `decision="copy"`, which
+  Plex Web shows as Direct Stream. `start.m3u8` starts that transcode
+  (fMP4 segments) and returns a master playlist; the media
   playlist lists every segment up front (VOD), so seeking just requests a
   later segment, and init and media segments pass through from Jellyfin.
   Audio track and burned-in subtitle come from the part's selected streams

@@ -70,7 +70,15 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 	// The client asks with directPlay=0 when it has decided it can't play
 	// the file as is (codec, container, or a non-default audio track).
 	if r.URL.Query().Get("directPlay") == "0" {
-		write(w, r, s.transcodeDecision(md, mediaIndex))
+		copyVideo := false
+		if t, err := s.resolveTranscode(ctx, r.URL.Query()); err == nil {
+			if plan, err := s.planTranscode(ctx, t, r.URL.Query(), "decision"); err == nil {
+				copyVideo = plan.copyVideo
+			} else {
+				slog.Warn("plan transcode for decision", "err", err)
+			}
+		}
+		write(w, r, s.transcodeDecision(md, mediaIndex, copyVideo))
 		return
 	}
 	i := 0

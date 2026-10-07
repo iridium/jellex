@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	jellyfin "github.com/sj14/jellyfin-go/api"
 )
 
 // Transcoding bridges Plex's transcoder API onto Jellyfin's HLS transcoder.
@@ -93,9 +95,10 @@ func (s *Server) jfGet(ctx context.Context, u string) (*http.Response, error) {
 // transcodeTarget resolves the item and stream choices a transcode request
 // refers to (by path, mediaIndex and the part's selected streams).
 type transcodeTarget struct {
-	item, source  string
-	audioIndex    int // Jellyfin stream index, -1 for default
-	subtitleIndex int // Jellyfin stream index to burn in, -1 for none
+	user, item, source string
+	videoCodec         string // the source's video codec, e.g. "hevc"
+	audioIndex         int    // Jellyfin stream index, -1 for default
+	subtitleIndex      int    // Jellyfin stream index to burn in, -1 for none
 }
 
 func (s *Server) resolveTranscode(ctx context.Context, q url.Values) (*transcodeTarget, error) {
@@ -126,7 +129,13 @@ func (s *Server) resolveTranscode(ctx context.Context, q url.Values) (*transcode
 		return nil, errNotFound
 	}
 	ms := sources[mediaIndex]
-	t := &transcodeTarget{item: guid, source: ms.GetId(), audioIndex: -1, subtitleIndex: -1}
+	t := &transcodeTarget{user: uid, item: guid, source: ms.GetId(), audioIndex: -1, subtitleIndex: -1}
+	for _, st := range ms.GetMediaStreams() {
+		if st.GetType() == jellyfin.MEDIASTREAMTYPE_VIDEO {
+			t.videoCodec = strings.ToLower(st.GetCodec())
+			break
+		}
+	}
 
 	// The selected streams are on the rendered Part; map their Plex stream
 	// IDs back to Jellyfin stream indexes.
@@ -200,34 +209,12 @@ func (s *Server) handleTranscodeStart(w http.ResponseWriter, r *http.Request) {
 		s.stopTranscode(sid)
 	}
 
-	p := url.Values{}
-	p.Set("MediaSourceId", t.source)
-	p.Set("PlaySessionId", sid)
-	p.Set("DeviceId", transcodeDevice)
-	p.Set("VideoCodec", "h264")
-	p.Set("AudioCodec", "aac")
-	p.Set("SegmentContainer", "mp4")
-	p.Set("TranscodingMaxAudioChannels", "2")
-	if kbps, err := strconv.Atoi(q.Get("maxVideoBitrate")); err == nil && kbps > 0 {
-		p.Set("VideoBitrate", fmt.Sprint(kbps*1000))
-		p.Set("MaxStreamingBitrate", fmt.Sprint(kbps*1000))
+	plan, err := s.planTranscode(ctx, t, q, sid)
+	if err != nil {
+		fail(w, r, fmt.Errorf("plan jellyfin transcode: %w", err))
+		return
 	}
-	if res := q.Get("videoResolution"); res != "" {
-		if wh := strings.SplitN(res, "x", 2); len(wh) == 2 {
-			p.Set("MaxWidth", wh[0])
-			p.Set("MaxHeight", wh[1])
-		}
-	}
-	if t.audioIndex >= 0 {
-		p.Set("AudioStreamIndex", fmt.Sprint(t.audioIndex))
-	}
-	if t.subtitleIndex >= 0 {
-		p.Set("SubtitleStreamIndex", fmt.Sprint(t.subtitleIndex))
-		p.Set("SubtitleMethod", "Encode")
-	}
-	base := fmt.Sprintf("%s/Videos/%s/", strings.TrimRight(s.cfg.JellyfinURL, "/"), t.item)
-
-	ts, err := s.openHLS(ctx, base, "master.m3u8?"+p.Encode())
+	ts, err := s.openHLS(ctx, plan.base, plan.master)
 	if err != nil {
 		fail(w, r, fmt.Errorf("start jellyfin transcode: %w", err))
 		return
@@ -235,6 +222,7 @@ func (s *Server) handleTranscodeStart(w http.ResponseWriter, r *http.Request) {
 	ts.id = sid
 	s.transcodes.put(ts)
 	slog.Info("transcode started", "session", sid, "item", t.item, "segments", len(ts.segments),
+		"copyVideo", plan.copyVideo, "reasons", strings.Join(plan.reasons, ","),
 		"audioIndex", t.audioIndex, "burnSubtitle", t.subtitleIndex)
 
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
@@ -446,8 +434,9 @@ func (s *Server) stopTranscode(sid string) {
 }
 
 // transcodeDecision answers a decision request the client made without
-// direct play: Plex will stream an HLS transcode of the item.
-func (s *Server) transcodeDecision(md *Element, mediaIndex int) *Element {
+// direct play: Plex will stream an HLS transcode of the item, with the
+// video passed through ("direct stream") if copyVideo.
+func (s *Server) transcodeDecision(md *Element, mediaIndex int, copyVideo bool) *Element {
 	const protocol = "hls"
 	i := 0
 	for _, c := range md.Children {
@@ -456,16 +445,21 @@ func (s *Server) transcodeDecision(md *Element, mediaIndex int) *Element {
 		}
 		if i == mediaIndex {
 			c.A("selected", true).A("protocol", protocol).A("container", "mp4").
-				A("videoCodec", "h264").A("audioCodec", "aac").A("audioChannels", 2)
+				A("audioCodec", "aac").A("audioChannels", 2)
+			videoDecision := "copy"
+			if !copyVideo {
+				videoDecision = "transcode"
+				c.A("videoCodec", "h264")
+			}
 			for _, p := range c.Children {
 				if p.Tag != "Part" {
 					continue
 				}
-				p.A("decision", "transcode").A("selected", true).A("container", "mp4").A("protocol", "dash")
+				p.A("decision", "transcode").A("selected", true).A("container", "mp4").A("protocol", protocol)
 				for _, st := range p.Children {
 					switch st.Get("streamType") {
 					case 1:
-						st.A("decision", "transcode")
+						st.A("decision", videoDecision)
 					case 2:
 						if st.Get("selected") == true {
 							st.A("decision", "transcode")
