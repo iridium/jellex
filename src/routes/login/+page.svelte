@@ -164,6 +164,12 @@
 			{/if}
 		{/if}
 	</div>
+	<a
+		class="source"
+		href="https://github.com/iridium/jellex"
+		target="_blank"
+		rel="noopener noreferrer">jellex on GitHub</a
+	>
 </main>
 
 <style>
@@ -171,8 +177,18 @@
 		min-height: 100%;
 		display: grid;
 		place-items: center;
+		align-content: center;
+		gap: 16px;
 		padding: 16px;
 		overflow: auto;
+	}
+	.source {
+		color: var(--color-text-muted);
+		font-size: 13px;
+	}
+	.source:hover {
+		color: var(--color-text-primary);
+		text-decoration: underline;
 	}
 	.panel {
 		width: 100%;
