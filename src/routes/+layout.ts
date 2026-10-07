@@ -1,7 +1,7 @@
 import { session } from '#lib/session.svelte.ts';
 
-// Pure single-page app: no server rendering, no prerendering. The static
-// adapter emits index.html as the fallback for every route.
+// Pure single-page app: no server rendering, no prerendering. On
+// Cloudflare (adapter-cloudflare) every route serves the same app shell.
 export const ssr = false;
 export const prerender = false;
 

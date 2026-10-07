@@ -14,7 +14,8 @@ Jellyfin's data. See "Copying Plex Web" below for the workflow.
 ## Layout
 
 - `src/routes` – SvelteKit routes. The app runs in SPA mode (`ssr = false`
-  in `+layout.ts`, `adapter-static` with `index.html` as the fallback).
+  in `+layout.ts`), deployed to Cloudflare Pages with
+  `@sveltejs/adapter-cloudflare`.
 - `src/lib` – shared code: the Jellyfin session (`session.svelte.ts`),
   image URLs (`images.ts`), components, Plex's icon set (`icons.ts`,
   rendered by `components/Icon.svelte`) and Plex's design tokens
@@ -44,12 +45,12 @@ server, which the login page's "Try the Jellyfin demo" button signs in to.
 | jellex dev server    | http://localhost:32400           |
 
 Develop with `npm install && npm run dev` (Vite with hot reload on port
-32400). `npm run build` writes the static site to `build/`, with
-`index.html` as the fallback for every route; any static host serves it.
-Nothing reads a `.env` file.
+32400). `npm run build` writes the Cloudflare Pages output to
+`.svelte-kit/cloudflare` (build command `npm run build`, output directory
+`.svelte-kit/cloudflare`). Nothing reads a `.env` file.
 
 `npm run check` type-checks; `npm run format` formats with Prettier
-(`npm run lint` checks it); `npm run build` writes `build/`.
+(`npm run lint` checks it).
 
 ## Notes
 
