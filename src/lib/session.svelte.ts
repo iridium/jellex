@@ -4,6 +4,7 @@ import { Jellyfin } from '@jellyfin/sdk';
 import type { Api } from '@jellyfin/sdk/lib/api';
 import type { UserDto } from '@jellyfin/sdk/lib/generated-client';
 import { getAuthenticationApi } from '@jellyfin/sdk/lib/utils/api/authentication-api';
+import { getSystemApi } from '@jellyfin/sdk/lib/utils/api/system-api';
 import { getUserApi } from '@jellyfin/sdk/lib/utils/api/user-api';
 
 const SESSION_KEY = 'jellex.session';
@@ -86,6 +87,42 @@ export function normalizeServerUrl(input: string): string {
 /** The server URL to prefill on the sign-in page: the last one used, or none. */
 export function defaultServerUrl(): string {
 	return read(SERVER_KEY) ?? '';
+}
+
+/** A server found by `findServer`, ready to sign in to. */
+export interface FoundServer {
+	url: string;
+	name: string;
+	quickConnect: boolean;
+}
+
+/**
+ * Finds the Jellyfin server behind what the user typed ("host",
+ * "host:8096", "https://host/jellyfin"): tries the same address candidates
+ * as Jellyfin's own clients (https and Jellyfin's default ports) at once and
+ * takes the first that answers. Null if none does.
+ */
+export async function findServer(input: string): Promise<FoundServer | null> {
+	let candidates = jellyfin.discovery.getAddressCandidates(input.trim());
+	// An https page can't call an http server, so don't try.
+	if (location.protocol === 'https:') candidates = candidates.filter((c) => c.startsWith('https:'));
+	try {
+		return await Promise.any(
+			candidates.map(async (candidate) => {
+				const url = candidate.replace(/\/+$/, '');
+				const a = jellyfin.createApi(url);
+				const { data } = await getSystemApi(a).getPublicSystemInfo({ timeout: 5000 });
+				if (!data.Id) throw new Error('not a Jellyfin server');
+				const quickConnect = await getAuthenticationApi(a)
+					.getQuickConnectEnabled()
+					.then((r) => r.data === true)
+					.catch(() => false);
+				return { url, name: data.ServerName || url, quickConnect };
+			})
+		);
+	} catch {
+		return null;
+	}
 }
 
 let api = $state<Api | null>(null);

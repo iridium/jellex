@@ -1,9 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import Wordmark from '#lib/components/Wordmark.svelte';
-	import { DEMO_SERVER, defaultServerUrl, session } from '#lib/session.svelte.ts';
+	import {
+		DEMO_SERVER,
+		defaultServerUrl,
+		findServer,
+		session,
+		type FoundServer
+	} from '#lib/session.svelte.ts';
 
-	let serverUrl = $state(defaultServerUrl());
+	// Two steps, like Jellyfin's own clients: find the server first, then
+	// sign in to it with a password or Quick Connect.
+	let serverInput = $state(defaultServerUrl());
+	let server = $state<FoundServer | null>(null);
 	let username = $state('');
 	let password = $state('');
 	let error = $state('');
@@ -18,19 +27,38 @@
 		const status = (e as { response?: { status?: number } })?.response?.status;
 		if (status === 401) return 'Wrong username or password.';
 		if (status) return `The server answered with HTTP ${status}.`;
-		return "Couldn't reach the server. Check the address.";
+		return "Couldn't reach the server.";
+	}
+
+	async function connect(event: SubmitEvent) {
+		event.preventDefault();
+		error = '';
+		busy = true;
+		try {
+			server = await findServer(serverInput);
+			if (!server) error = "Couldn't find a Jellyfin server at that address.";
+		} finally {
+			busy = false;
+		}
+	}
+
+	function changeServer() {
+		cancelQuick?.();
+		cancelQuick = null;
+		server = null;
+		quickCode = quickStatus = error = '';
 	}
 
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
-		await signIn(serverUrl, username, password);
+		if (server) await signIn(server.url, username, password);
 	}
 
-	async function signIn(server: string, user: string, pass: string) {
+	async function signIn(url: string, user: string, pass: string) {
 		error = '';
 		busy = true;
 		try {
-			await session.signIn(server, user, pass);
+			await session.signIn(url, user, pass);
 			await goto('/', { replace: true });
 		} catch (e) {
 			error = describe(e);
@@ -40,16 +68,18 @@
 	}
 
 	async function quickConnect() {
+		if (!server) return;
 		error = '';
 		quickStatus = 'Starting…';
 		try {
-			const { code, poll } = await session.startQuickConnect(serverUrl);
+			const { code, poll } = await session.startQuickConnect(server.url);
 			quickCode = code;
 			quickStatus = 'Waiting for approval…';
 			let stopped = false;
 			cancelQuick = () => (stopped = true);
 			while (!stopped) {
 				await new Promise((r) => setTimeout(r, 2000));
+				if (stopped) return;
 				if (await poll()) {
 					await goto('/', { replace: true });
 					return;
@@ -75,34 +105,64 @@
 		<div class="brand">
 			<Wordmark height={28} />
 		</div>
-		<p class="sub">Sign in with your Jellyfin account.</p>
 
-		<form onsubmit={submit}>
-			<label for="server">Server</label>
-			<input id="server" bind:value={serverUrl} autocomplete="url" spellcheck="false" required />
-			<label for="u">Username</label>
-			<input id="u" bind:value={username} autocomplete="username" required />
-			<label for="p">Password</label>
-			<input id="p" type="password" bind:value={password} autocomplete="current-password" />
-			{#if error}<p class="err" role="alert">{error}</p>{/if}
-			<button class="primary" type="submit" disabled={busy}>Sign in</button>
-		</form>
-
-		<div class="divider">or</div>
-		{#if quickCode}
-			<div class="quick" aria-live="polite">
-				<p>Enter this code in a Jellyfin app you're signed in to (Settings → Quick Connect):</p>
-				<div class="code">{quickCode}</div>
-				<p>{quickStatus}</p>
-			</div>
+		{#if !server}
+			<p class="sub">Enter the address of your Jellyfin server.</p>
+			<form onsubmit={connect}>
+				<label for="server">Server</label>
+				<!-- svelte-ignore a11y_autofocus -->
+				<input
+					id="server"
+					bind:value={serverInput}
+					autocomplete="url"
+					spellcheck="false"
+					placeholder="jellyfin.example.com"
+					autofocus
+					required
+				/>
+				{#if error}<p class="err" role="alert">{error}</p>{/if}
+				<button class="primary" type="submit" disabled={busy}>
+					{busy ? 'Connecting…' : 'Connect'}
+				</button>
+			</form>
+			<div class="divider">or</div>
+			<button class="secondary demo" type="button" onclick={signInToDemo} disabled={busy}
+				>Try the Jellyfin demo</button
+			>
 		{:else}
-			<button class="secondary" type="button" onclick={quickConnect} disabled={!!quickStatus}>
-				Use Quick Connect
-			</button>
+			<div class="server">
+				<div class="server-text">
+					<span class="server-name">{server.name}</span>
+					<span class="server-url">{server.url}</span>
+				</div>
+				<button class="change" type="button" onclick={changeServer}>Change</button>
+			</div>
+
+			<form onsubmit={submit}>
+				<label for="u">Username</label>
+				<!-- svelte-ignore a11y_autofocus -->
+				<input id="u" bind:value={username} autocomplete="username" autofocus required />
+				<label for="p">Password</label>
+				<input id="p" type="password" bind:value={password} autocomplete="current-password" />
+				{#if error}<p class="err" role="alert">{error}</p>{/if}
+				<button class="primary" type="submit" disabled={busy}>Sign in</button>
+			</form>
+
+			{#if server.quickConnect}
+				<div class="divider">or</div>
+				{#if quickCode}
+					<div class="quick" aria-live="polite">
+						<p>Enter this code in a Jellyfin app you're signed in to (Settings → Quick Connect):</p>
+						<div class="code">{quickCode}</div>
+						<p>{quickStatus}</p>
+					</div>
+				{:else}
+					<button class="secondary" type="button" onclick={quickConnect} disabled={!!quickStatus}>
+						Use Quick Connect
+					</button>
+				{/if}
+			{/if}
 		{/if}
-		<button class="secondary demo" type="button" onclick={signInToDemo} disabled={busy}
-			>Try the Jellyfin demo</button
-		>
 	</div>
 </main>
 
@@ -176,8 +236,41 @@
 		color: var(--color-text-primary);
 		margin-top: 0;
 	}
-	.secondary.demo {
-		margin-top: 8px;
+	.server {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin: 16px 0 8px;
+		padding: 10px 12px;
+		border-radius: var(--border-radius-s);
+		background: var(--color-background-control);
+	}
+	.server-text {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		min-width: 0;
+	}
+	.server-name {
+		color: var(--color-text-primary);
+		font-weight: 600;
+	}
+	.server-url {
+		overflow: hidden;
+		color: var(--color-text-muted);
+		font-size: 13px;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.change {
+		width: auto;
+		margin: 0;
+		padding: 4px 0;
+		color: var(--color-accent-dark);
+		font-weight: 400;
+	}
+	.change:hover {
+		text-decoration: underline;
 	}
 	.secondary:hover:not(:disabled) {
 		background: var(--color-background-control-focus);

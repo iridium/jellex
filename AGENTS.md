@@ -114,7 +114,8 @@ script. Nothing reads a `.env` file.
 ## Testing in a browser
 
 A headless Chromium run is the fastest feedback loop: load `/login` on the
-dev server, click "Try the Jellyfin demo" (or fill `#server`, `#u`, `#p`),
+dev server, click "Try the Jellyfin demo" (or fill `#server` and submit,
+then `#u` and `#p`),
 record failed requests and console errors, and screenshot. Keep such
 throwaway scripts (and their Playwright install) outside the repo, e.g. in
 a scratch directory. Sign out at the end (`POST /Sessions/Logout` with the
