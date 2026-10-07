@@ -1,98 +1,163 @@
 <script lang="ts">
 	import { fadeIn } from '#lib/motion.ts';
 	import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client';
-	import { duration, episodeCode, plural, ticksToSeconds } from '#lib/format.ts';
+	import { plural, shortDuration, ticksToSeconds } from '#lib/format.ts';
 	import { imageUrl } from '#lib/images.ts';
+	import { modals } from '#lib/modals.svelte.ts';
 	import { player } from '#lib/player.svelte.ts';
 	import Equalizer from '../Equalizer.svelte';
 	import Icon from '../Icon.svelte';
 
-	// Plex Web's AudioVideoPlayQueue: "Play Queue" with its count, then 68px
-	// rows; the playing one shows the equalizer, past ones fade, hovering a
-	// row reveals its drag handle and remove button.
+	// Plex Web's AudioVideoPlayQueue: the "Play Queue" heading with its count
+	// and Add to Playlist, then 68px rows striped every other one. The playing
+	// row shows the equalizer; hovering any other reveals its drag handle and
+	// a remove button in place of the duration.
 	let dragFrom = $state<number | null>(null);
-	let dragOver = $state<number | null>(null);
+	/** Where the dragged row would land: before the row at this index. */
+	let dropAt = $state<number | null>(null);
 
-	function subtitle(i: BaseItemDto) {
-		if (i.Type === 'Episode') return [i.SeriesName, episodeCode(i)].filter(Boolean).join(' · ');
-		if (i.Type === 'Audio') return [i.AlbumArtist, i.Album].filter(Boolean).join(' — ');
-		return i.ProductionYear ? String(i.ProductionYear) : '';
+	// Plex: a 64px-wide card, 64×36 for episodes, otherwise 36 wide.
+	function card(i: BaseItemDto) {
+		if (i.Type === 'Episode') return { w: 64, h: 36, src: imageUrl(i, 'landscape', 64) };
+		if (i.Type === 'Audio') return { w: 36, h: 36, src: imageUrl(i, 'square', 36) };
+		return { w: 36, h: 54, src: imageUrl(i, 'poster', 36) };
 	}
-	function art(i: BaseItemDto) {
-		return imageUrl(
-			i,
-			i.Type === 'Episode' ? 'landscape' : i.Type === 'Audio' ? 'square' : 'poster',
-			100
-		);
+	function go() {
+		if (player.mode === 'full') player.minimize();
 	}
-	function drop(to: number) {
-		if (dragFrom != null && dragFrom !== to) player.moveInQueue(dragFrom, to);
-		dragFrom = dragOver = null;
+	function dragOver(e: DragEvent, i: number) {
+		if (dragFrom == null) return;
+		e.preventDefault();
+		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		dropAt = e.clientY - r.top > r.height / 2 ? i + 1 : i;
+	}
+	function drop() {
+		if (dragFrom != null && dropAt != null) {
+			const to = dropAt > dragFrom ? dropAt - 1 : dropAt;
+			if (to !== dragFrom) player.moveInQueue(dragFrom, to);
+		}
+		dragFrom = dropAt = null;
 	}
 </script>
 
 <div class="queue">
-	<div class="top">
-		<div>
-			<h1>Play Queue</h1>
-			<div class="count">{plural(player.queue.length, 'item')}</div>
+	<div class="heading-container">
+		<h1>Play Queue</h1>
+		<div class="top">
+			<span class="count">{plural(player.queue.length, 'item')}</span>
+			<button
+				class="add"
+				type="button"
+				title="Add to Playlist"
+				aria-label="Add to Playlist"
+				onclick={() => modals.open({ kind: 'add-to-playlist', items: player.queue })}
+			>
+				<Icon name="add-to" size={24} />
+			</button>
 		</div>
+		<div class="divider"></div>
 	</div>
-	<div class="content scroller">
+	<div class="content scroller" role="list">
 		{#each player.queue as entry, i (`${entry.Id}-${i}`)}
 			{@const isCurrent = i === player.index}
+			{@const c = card(entry)}
 			<div
-				class="row"
-				class:current={isCurrent}
-				class:past={i < player.index}
-				class:drag-over={dragOver === i}
+				class="drag-source"
+				class:dragging={dragFrom === i}
+				class:drag-before={dropAt === i}
+				class:drag-after={dropAt === i + 1}
 				role="listitem"
-				ondragover={(e) => (e.preventDefault(), (dragOver = i))}
-				ondrop={() => drop(i)}
+				ondragover={(e) => dragOver(e, i)}
+				ondrop={drop}
 			>
-				<div class="left">
-					{#if isCurrent}
-						<Equalizer playing={!player.paused} />
-					{:else}
-						<span
-							class="move"
-							draggable="true"
-							role="button"
-							tabindex="-1"
-							aria-label="Move"
-							ondragstart={() => (dragFrom = i)}
-							ondragend={() => (dragFrom = dragOver = null)}
-						>
-							<Icon name="list" size={14} />
-						</span>
+				<div class="item" class:current={isCurrent} class:item-dragging={dragFrom === i}>
+					<div class="left">
+						{#if isCurrent}
+							<Equalizer playing={!player.paused} />
+						{:else}
+							<span
+								class="move"
+								draggable="true"
+								role="button"
+								tabindex="-1"
+								aria-label="Move"
+								ondragstart={(e) => {
+									dragFrom = i;
+									const row = (e.currentTarget as HTMLElement).closest('.drag-source');
+									if (row && e.dataTransfer) e.dataTransfer.setDragImage(row, 30, 34);
+								}}
+								ondragend={() => (dragFrom = dropAt = null)}
+							>
+								<Icon name="reorder" size={14} />
+							</span>
+						{/if}
+					</div>
+					<div class="metadata">
+						<div class="card-container">
+							<div class="card" style:width="{c.w}px" style:height="{c.h}px">
+								{#if c.src}<img src={c.src} alt="" loading="lazy" use:fadeIn />{/if}
+								<button
+									class="play-button"
+									type="button"
+									aria-label="Play {entry.Name}"
+									onclick={() => player.jumpTo(i)}
+								>
+									<span class="play-circle"><Icon name="play" size={20} /></span>
+								</button>
+							</div>
+						</div>
+						<div class="titles">
+							{#if entry.Type === 'Episode'}
+								<a class="title" href="/items/{entry.SeriesId ?? entry.Id}" onclick={go}
+									>{entry.SeriesName ?? entry.Name}</a
+								>
+								<span class="title secondary">
+									{#if entry.ParentIndexNumber != null}<a
+											href="/items/{entry.SeasonId ?? entry.Id}"
+											onclick={go}>S{entry.ParentIndexNumber}</a
+										><span class="sep">·</span>{/if}{#if entry.IndexNumber != null}<a
+											href="/items/{entry.Id}"
+											onclick={go}>E{entry.IndexNumber}</a
+										><span class="sep">—</span>{/if}<a href="/items/{entry.Id}" onclick={go}
+										>{entry.Name}</a
+									>
+								</span>
+							{:else if entry.Type === 'Audio'}
+								<span class="title">{entry.Name}</span>
+								<span class="title secondary">
+									{#if entry.AlbumArtists?.[0]?.Id}<a
+											href="/items/{entry.AlbumArtists[0].Id}"
+											onclick={go}>{entry.AlbumArtists[0].Name}</a
+										>{:else}{entry.AlbumArtist ?? ''}{/if}{#if entry.Album}<span class="sep">—</span
+										>{#if entry.AlbumId}<a href="/items/{entry.AlbumId}" onclick={go}
+												>{entry.Album}</a
+											>{:else}{entry.Album}{/if}{/if}
+								</span>
+							{:else}
+								<a class="title" href="/items/{entry.Id}" onclick={go}>{entry.Name}</a>
+								{#if entry.ProductionYear}
+									<span class="title secondary">{entry.ProductionYear}</span>
+								{/if}
+							{/if}
+						</div>
+						<div class="duration">
+							{entry.RunTimeTicks ? shortDuration(ticksToSeconds(entry.RunTimeTicks)) : ''}
+						</div>
+					</div>
+					{#if !isCurrent}
+						<div class="remove-controls">
+							<button
+								class="remove"
+								type="button"
+								title="Remove"
+								aria-label="Remove"
+								onclick={() => player.removeFromQueue(i)}
+							>
+								<Icon name="remove" size={14} />
+							</button>
+						</div>
 					{/if}
 				</div>
-				<button class="main" type="button" onclick={() => !isCurrent && player.jumpTo(i)}>
-					<span
-						class="poster"
-						class:wide={entry.Type === 'Episode'}
-						class:square={entry.Type === 'Audio'}
-					>
-						{#if art(entry)}<img src={art(entry)} alt="" loading="lazy" use:fadeIn />{/if}
-					</span>
-					<span class="titles">
-						<span class="name">{entry.Name}</span>
-						<span class="sub">{subtitle(entry)}</span>
-					</span>
-				</button>
-				<span class="duration"
-					>{entry.RunTimeTicks ? duration(ticksToSeconds(entry.RunTimeTicks)) : ''}</span
-				>
-				{#if !isCurrent}
-					<button
-						class="remove"
-						type="button"
-						aria-label="Remove from Play Queue"
-						onclick={() => player.removeFromQueue(i)}
-					>
-						<Icon name="close" size={14} />
-					</button>
-				{/if}
 			</div>
 		{/each}
 	</div>
@@ -102,64 +167,91 @@
 	/* Plex: AudioVideoPlayQueue. */
 	.queue {
 		position: absolute;
-		inset: 0;
+		top: 0;
+		left: 0;
 		display: flex;
 		flex-direction: column;
+		width: 100%;
+		height: 100%;
 		padding: 20px 60px 0;
+	}
+	/* Plex: AudioVideoFullPlayerContentHeading. */
+	h1 {
+		margin: 0;
+		padding: 0 20px;
+		color: #fff;
+		font-family: var(--font-heading);
+		font-size: 24px;
+		font-weight: 700;
+		line-height: 41.14px;
 	}
 	.top {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0 20px 27px;
-	}
-	h1 {
-		margin: 0;
-		color: #fff;
-		font-family: var(--font-heading);
-		font-size: 24px;
-		font-weight: 700;
-		line-height: 40px;
+		padding: 0 20px;
 	}
 	.count {
-		margin-top: 4px;
-		line-height: 20px;
+		margin-right: 20px;
 		color: hsla(0, 0%, 100%, 0.45);
 		font-size: 15px;
+		line-height: 25.71px;
+	}
+	.add {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 48px;
+		height: 32px;
+		padding: 0 12px;
+		color: hsla(0, 0%, 100%, 0.8);
+	}
+	.add:hover {
+		color: #fff;
+	}
+	.divider {
+		height: 2px;
+		margin-top: 20px;
+		background-color: rgba(0, 0, 0, 0.3);
 	}
 	.content {
-		flex: 1;
+		position: relative;
+		flex-grow: 1;
 		min-height: 0;
 		overflow: hidden auto;
-		border-top: 2px solid rgba(0, 0, 0, 0.2);
 	}
+
+	/* Plex: AudioVideoPlayQueueItemDragSource. */
+	.drag-source:nth-child(odd) {
+		background-color: hsla(0, 0%, 100%, 0.02);
+	}
+	.drag-source:hover {
+		background-color: hsla(0, 0%, 100%, 0.06);
+	}
+	.drag-source.dragging {
+		background-color: rgba(0, 0, 0, 0.15);
+	}
+	.drag-source.drag-before {
+		box-shadow: inset 0 4px 0 -2px var(--color-brand-accent);
+	}
+	.drag-source.drag-after {
+		box-shadow: 0 2px 0 0 var(--color-brand-accent);
+	}
+
 	/* Plex: AudioVideoPlayQueueItem. */
-	.row {
+	.item {
 		position: relative;
 		display: flex;
 		align-items: center;
+		justify-content: space-between;
 		height: 68px;
-		padding-right: 20px;
-		transition: opacity 0.2s;
-	}
-	.row.current {
-		background-color: rgba(255, 255, 255, 0.04);
-	}
-	.row.past {
-		opacity: 0.4;
-	}
-	.row:hover {
-		opacity: 1;
-		background-color: rgba(255, 255, 255, 0.04);
-	}
-	.row.drag-over {
-		box-shadow: inset 0 2px 0 var(--color-brand-accent);
+		padding: 0 20px 0 0;
+		font-size: 13px;
 	}
 	.left {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		flex-shrink: 0;
 		width: 54px;
 		height: 100%;
 	}
@@ -174,81 +266,137 @@
 		opacity: 0;
 		transition: opacity 0.2s;
 	}
-	.row:hover .move {
-		opacity: 1;
-	}
 	.move:hover {
 		color: #fff;
 	}
-	.main {
+	.item:hover .move,
+	.item-dragging .move,
+	.item:hover .remove-controls {
+		opacity: 1;
+	}
+	.remove-controls {
+		position: absolute;
+		top: 0;
+		right: 0;
+		opacity: 0;
+		transition: opacity 0.2s;
+	}
+	.remove {
 		display: flex;
 		align-items: center;
-		flex: 1;
-		min-width: 0;
-		height: 100%;
-		text-align: left;
-		cursor: default;
+		height: 68px;
+		padding: 0 20px;
+		color: #f53;
 	}
-	.poster {
+
+	/* Plex: AudioVideoPlayerPlayQueueMetadata. */
+	.metadata {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		height: 100%;
+		overflow: hidden;
+	}
+	.card-container {
 		flex-shrink: 0;
 		width: 64px;
-		height: 54px;
-		margin-left: 12px;
+		margin: 0 14px 0 0;
 	}
-	.poster img {
-		height: 54px;
-		width: 36px;
+	/* Plex: MetadataPosterButtonCard. */
+	.card {
+		position: relative;
+		margin: 0 auto;
+		background-color: hsla(0, 0%, 100%, 0.1);
+	}
+	.card img {
+		display: block;
+		width: 100%;
+		height: 100%;
 		object-fit: cover;
-		border-radius: 2px;
 	}
-	.poster.wide img {
-		width: 64px;
-		height: 36px;
-		margin-top: 9px;
+	.play-button {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		z-index: 3;
+		width: 100%;
+		height: 100%;
+		line-height: 0;
+		opacity: 0;
+		transform: translate(-50%, -50%);
 	}
-	.poster.square img {
-		width: 54px;
+	.card:hover .play-button {
+		opacity: 1;
+	}
+	/* Plex: PlayButton. */
+	.play-circle {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		border: 2px solid hsla(0, 0%, 100%, 0.7);
+		border-radius: 50%;
+		color: hsla(0, 0%, 100%, 0.7);
+		transform: translate(-50%, -50%);
+		transition: all 0.2s;
+	}
+	.play-button:hover .play-circle {
+		background-color: var(--color-brand-accent);
+		border-color: var(--color-brand-accent);
+		color: #1f2326;
 	}
 	.titles {
 		display: flex;
 		flex-direction: column;
-		min-width: 0;
-	}
-	.name,
-	.sub {
+		width: 100%;
 		overflow: hidden;
+	}
+	/* Plex: MetadataPosterTitle. */
+	.title {
+		display: block;
+		height: 20px;
+		min-width: 0;
+		max-width: 100%;
+		overflow: hidden;
+		color: #fff;
+		line-height: 20px;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		line-height: 20px;
+		user-select: none;
 	}
-	.name {
+	.title.secondary,
+	.title.secondary a {
+		color: hsla(0, 0%, 100%, 0.45);
+	}
+	a.title:hover,
+	.title a:hover {
+		text-decoration: underline;
+	}
+	.title.secondary a {
+		transition: color 0.2s;
+	}
+	.title.secondary a:hover {
 		color: #fff;
 	}
-	.sub {
-		color: hsla(0, 0%, 100%, 0.45);
+	/* Plex: DashSeparator. */
+	.sep {
+		margin: 0 4px;
 	}
 	.duration {
-		flex-shrink: 0;
+		padding-left: 20px;
 		color: hsla(0, 0%, 100%, 0.45);
+		white-space: nowrap;
 		transition: opacity 0.1s;
 	}
-	.remove {
-		position: absolute;
-		top: 0;
-		right: 0;
-		height: 68px;
-		padding: 0 20px;
-		color: hsla(0, 0%, 100%, 0.7);
+	.item:hover .duration {
 		opacity: 0;
-		transition: opacity 0.2s;
 	}
-	.row:hover .remove {
+	.item.current:hover .duration {
 		opacity: 1;
-	}
-	.row:hover:has(.remove) .duration {
-		opacity: 0;
-	}
-	.remove:hover {
-		color: #fff;
 	}
 </style>

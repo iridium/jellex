@@ -14,6 +14,17 @@ export function duration(seconds: number): string {
 	return `${s}sec`;
 }
 
+/** Plex's compact duration (play queue rows): "30sec", "31min", "1hr 32min", "2hr". */
+export function shortDuration(seconds: number): string {
+	const s = Math.floor(seconds);
+	const h = Math.floor(s / 3600);
+	const m = Math.floor((s % 3600) / 60);
+	if (h && m) return `${h}hr ${m}min`;
+	if (h) return `${h}hr`;
+	if (m) return `${m}min`;
+	return s > 0 ? `${s}sec` : '';
+}
+
 /** Plex's clock duration for track lists: "0:02", "4:31", "1:02:09". */
 export function clock(seconds: number): string {
 	const s = Math.round(seconds);
