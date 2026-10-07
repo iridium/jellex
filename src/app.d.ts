@@ -1,8 +1,8 @@
 // See https://svelte.dev/docs/kit/types#app.d.ts
 // for information about these interfaces
 declare global {
-	/** package.json version, injected by Vite. */
-	const __APP_VERSION__: string;
+	/** The git commit the app was built from (empty if unknown), injected by Vite. */
+	const __APP_COMMIT__: string;
 
 	namespace App {
 		// interface Error {}

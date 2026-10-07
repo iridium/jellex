@@ -88,7 +88,15 @@
 
 		<form onsubmit={save}>
 			{#if data.page === 'general'}
-				<h4>Version {__APP_VERSION__}</h4>
+				<h4>
+					Version
+					{#if __APP_COMMIT__}<a
+							class="commit"
+							href="https://github.com/iridium/jellex/commit/{__APP_COMMIT__}"
+							target="_blank"
+							rel="noopener noreferrer">{__APP_COMMIT__.slice(0, 7)}</a
+						>{:else}unknown{/if}
+				</h4>
 				<div class="form-group">
 					<p class="help">
 						jellex is open source:
@@ -264,10 +272,12 @@
 		color: hsla(0, 0%, 100%, 0.45);
 	}
 	/* Plex's help-block links (the settings' "here"). */
-	.help a {
+	.help a,
+	.commit {
 		color: var(--color-accent-dark);
 	}
-	.help a:hover {
+	.help a:hover,
+	.commit:hover {
 		text-decoration: underline;
 	}
 	hr {
