@@ -231,7 +231,10 @@ export async function getStream(
 		throw new Error('This item can’t be played in this browser');
 	}
 
-	const sub = source.MediaStreams?.find((s) => s.Type === 'Subtitle' && s.Index === opts.subtitle);
+	// No choice made means the source's default track, which the details
+	// page and the player's settings already show as selected.
+	const subtitleIndex = opts.subtitle ?? source.DefaultSubtitleStreamIndex;
+	const sub = source.MediaStreams?.find((s) => s.Type === 'Subtitle' && s.Index === subtitleIndex);
 	const subtitleUrl =
 		sub?.DeliveryMethod === 'External' && sub.DeliveryUrl
 			? base +
