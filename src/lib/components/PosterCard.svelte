@@ -51,35 +51,62 @@
 	const selected = $derived(selection.has(item.Id));
 
 	// Plex's lines: title, then context (year, episode name, artist), then
-	// the episode code for episodes.
-	const lines = $derived.by((): [string, ...string[]] => {
+	// the episode code for episodes. Each part links to what it names: the
+	// show, the episode, "S1" to the season and "E4" to the episode.
+	interface Part {
+		text: string;
+		href?: string;
+		separator?: boolean;
+	}
+	const link = (id: string | null | undefined) => (id ? `/items/${id}` : undefined);
+	const lines = $derived.by((): Part[][] => {
 		const year = item.ProductionYear ? String(item.ProductionYear) : '';
 		switch (item.Type) {
 			case 'Episode': {
-				const code =
-					item.ParentIndexNumber != null && item.IndexNumber != null
-						? `S${item.ParentIndexNumber} · E${item.IndexNumber}`
-						: '';
-				return [item.SeriesName ?? '', item.Name ?? '', code];
+				const code: Part[] = [];
+				if (item.ParentIndexNumber != null && item.IndexNumber != null)
+					code.push(
+						{ text: `S${item.ParentIndexNumber}`, href: link(item.SeasonId) },
+						{ text: '·', separator: true },
+						{ text: `E${item.IndexNumber}`, href }
+					);
+				return [
+					[{ text: item.SeriesName ?? '', href: link(item.SeriesId) ?? href }],
+					[{ text: item.Name ?? '', href }],
+					code
+				];
 			}
 			case 'Season':
-				return [item.SeriesName ?? '', item.Name ?? ''];
-			case 'MusicAlbum':
-				return [item.Name ?? '', item.AlbumArtist ?? ''];
+				return [
+					[{ text: item.SeriesName ?? '', href: link(item.SeriesId) ?? href }],
+					[{ text: item.Name ?? '', href }]
+				];
+			case 'MusicAlbum': {
+				const artist = item.AlbumArtists?.[0];
+				return [
+					[{ text: item.Name ?? '', href }],
+					[{ text: artist?.Name ?? item.AlbumArtist ?? '', href: link(artist?.Id) }]
+				];
+			}
 			case 'Series': {
 				const end = item.EndDate ? new Date(item.EndDate).getFullYear() : null;
 				const span =
 					year && end && item.Status === 'Ended' && end !== +year ? `${year} – ${end}` : year;
-				return [item.Name ?? '', span];
+				return [[{ text: item.Name ?? '', href }], [{ text: span }]];
 			}
 			default:
-				return [item.Name ?? '', year];
+				return [[{ text: item.Name ?? '', href }], [{ text: year }]];
 		}
 	});
-	const title = $derived(fixedLines?.[0] ?? lines[0]);
+	const shown = $derived(
+		fixedLines
+			? fixedLines.map((text, i): Part[] => [{ text, href: i === 0 ? href : undefined }])
+			: lines
+	);
+	const title = $derived(shown[0][0]);
 	const details = $derived([
-		...(fixedLines ?? lines).slice(1).filter(Boolean),
-		...(addedLine && item.DateCreated ? [timeAgo(item.DateCreated)] : [])
+		...shown.slice(1).filter((line) => line.some((part) => part.text)),
+		...(addedLine && item.DateCreated ? [[{ text: timeAgo(item.DateCreated) }] as Part[]] : [])
 	]);
 </script>
 
@@ -121,7 +148,7 @@
 			class="poster-link"
 			class:selected
 			{href}
-			aria-label={title}
+			aria-label={title.text}
 			onclick={(e) => {
 				if (!selection.count) return;
 				e.preventDefault();
@@ -164,9 +191,19 @@
 		</div>
 	</div>
 
-	<a class="title" {href}>{title}</a>
+	<a class="title" href={title.href}>{title.text}</a>
 	{#each details as line, i (i)}
-		<div class="detail">{line}</div>
+		{#if line.length === 1 && line[0].href}
+			<a class="detail" href={line[0].href}>{line[0].text}</a>
+		{:else}
+			<div class="detail">
+				{#each line as part, j (j)}
+					{#if part.separator}<span class="separator">{part.text}</span>{:else if part.href}<a
+							href={part.href}>{part.text}</a
+						>{:else}{part.text}{/if}
+				{/each}
+			</div>
+		{/if}
 	{/each}
 </div>
 
@@ -394,7 +431,17 @@
 	.title:hover {
 		text-decoration: underline;
 	}
-	.detail {
+	.detail,
+	.detail a {
 		color: hsla(0, 0%, 100%, 0.45);
+	}
+	a.detail:hover,
+	.detail a:hover {
+		color: #fff;
+		text-decoration: underline;
+	}
+	/* Plex: DashSeparator. */
+	.separator {
+		margin: 0 4px;
 	}
 </style>
