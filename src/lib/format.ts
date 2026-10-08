@@ -4,25 +4,24 @@ import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client';
 /** Jellyfin ticks (100 ns) to seconds. */
 export const ticksToSeconds = (ticks: number | null | undefined) => (ticks ?? 0) / 1e7;
 
-/** Plex's long duration: "30sec", "45 min", "1 hr 32 min", "2 hr". */
+/**
+ * Plex's duration (its module 42464): minutes up to 90 minutes ("74min",
+ * "30sec"), then hours and minutes ("1hr 37min", "2hr") up to a day, then
+ * days ("2 days, 3hr"). Each unit is rounded down.
+ */
 export function duration(seconds: number): string {
-	const s = Math.round(seconds);
-	const h = Math.floor(s / 3600);
-	const m = Math.floor((s % 3600) / 60);
-	if (h > 0) return m > 0 ? `${h} hr ${m} min` : `${h} hr`;
-	if (m > 0) return `${m} min`;
-	return `${s}sec`;
-}
-
-/** Plex's compact duration (play queue rows): "30sec", "31min", "1hr 32min", "2hr". */
-export function shortDuration(seconds: number): string {
 	const s = Math.floor(seconds);
-	const h = Math.floor(s / 3600);
+	if (s <= 0) return '';
+	const d = Math.floor(s / 86400);
+	const h = Math.floor((s % 86400) / 3600);
 	const m = Math.floor((s % 3600) / 60);
-	if (h && m) return `${h}hr ${m}min`;
-	if (h) return `${h}hr`;
-	if (m) return `${m}min`;
-	return s > 0 ? `${s}sec` : '';
+	if (s <= 90 * 60) return s >= 60 ? `${Math.floor(s / 60)}min` : `${s}sec`;
+	if (s <= 86400) {
+		const hours = h + 24 * d;
+		return m ? `${hours}hr ${m}min` : `${hours}hr`;
+	}
+	const days = `${d} ${d === 1 ? 'day' : 'days'}`;
+	return s <= 7 * 86400 && h ? `${days}, ${h}hr` : days;
 }
 
 /** Plex's clock duration for track lists: "0:02", "4:31", "1:02:09". */
@@ -39,7 +38,8 @@ export function timeLeft(item: BaseItemDto): string | undefined {
 	const total = ticksToSeconds(item.RunTimeTicks);
 	const pos = ticksToSeconds(item.UserData?.PlaybackPositionTicks);
 	if (!total || !pos || pos >= total) return undefined;
-	return `${duration(total - pos)} left`;
+	const left = duration(total - pos);
+	return left ? `${left} left` : undefined;
 }
 
 /** "October 1, 1962". */

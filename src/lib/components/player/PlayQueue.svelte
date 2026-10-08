@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { fadeIn } from '#lib/motion.ts';
 	import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client';
-	import { plural, shortDuration, ticksToSeconds } from '#lib/format.ts';
+	import { duration, plural, ticksToSeconds } from '#lib/format.ts';
 	import { imageUrl } from '#lib/images.ts';
 	import { modals } from '#lib/modals.svelte.ts';
 	import { player } from '#lib/player.svelte.ts';
@@ -141,7 +141,7 @@
 							{/if}
 						</div>
 						<div class="duration">
-							{entry.RunTimeTicks ? shortDuration(ticksToSeconds(entry.RunTimeTicks)) : ''}
+							{entry.RunTimeTicks ? duration(ticksToSeconds(entry.RunTimeTicks)) : ''}
 						</div>
 					</div>
 					{#if !isCurrent}
