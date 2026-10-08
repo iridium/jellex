@@ -63,6 +63,12 @@
 				? (item.AlbumArtist ?? item.Name)
 				: item.Name
 	);
+	// Plex links the show's name on episodes and seasons to the show.
+	const titleHref = $derived(
+		(type === 'Episode' || type === 'Season') && item.SeriesId
+			? `/items/${item.SeriesId}`
+			: undefined
+	);
 	const subtitle = $derived(
 		type === 'Episode' || type === 'Season' || type === 'MusicAlbum' ? item.Name : undefined
 	);
@@ -287,7 +293,9 @@
 				<div class="info">
 					<div class="head">
 						<div class="titles">
-							<h1>{title}</h1>
+							<h1>
+								{#if titleHref}<a class="title-link" href={titleHref}>{title}</a>{:else}{title}{/if}
+							</h1>
 							{#if subtitle}<h2>{subtitle}</h2>{/if}
 							{#if directors.length && type === 'Movie'}
 								<div class="byline">Directed by {@render people(directors)}</div>
@@ -296,8 +304,11 @@
 						<div class="meta">
 							{#if type === 'Episode'}
 								<div class="meta-row">
-									{#if item.ParentIndexNumber != null}<span>Season {item.ParentIndexNumber}</span
-										>{/if}
+									{#if item.ParentIndexNumber != null}
+										{#if item.SeasonId}<a class="title-link" href="/items/{item.SeasonId}"
+												>Season {item.ParentIndexNumber}</a
+											>{:else}<span>Season {item.ParentIndexNumber}</span>{/if}
+									{/if}
 									{#if item.IndexNumber != null}<span>Episode {item.IndexNumber}</span>{/if}
 									{#if left}<span>{left}</span>{/if}
 								</div>
@@ -586,10 +597,12 @@
 		opacity: calc(25 / 256);
 	}
 	/* Plex: the crew's tag links. */
-	.person-link {
+	.person-link,
+	.title-link {
 		color: inherit;
 	}
-	.person-link:hover {
+	.person-link:hover,
+	.title-link:hover {
 		text-decoration: underline;
 	}
 	.page-content {
@@ -621,7 +634,6 @@
 		border-radius: 4px;
 		background-color: rgba(0, 0, 0, 0.45);
 		box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
-		overflow: hidden;
 	}
 	.poster.square {
 		aspect-ratio: 1;
@@ -629,9 +641,12 @@
 	.poster.landscape {
 		aspect-ratio: 16 / 9;
 	}
+	/* Rounded here rather than clipped by the poster, which would cut off
+	   the hover ring drawn just outside it. */
 	.poster img {
 		width: 100%;
 		height: 100%;
+		border-radius: inherit;
 		object-fit: cover;
 	}
 	/* Plex: PosterCardLink-hoveredLink + MetadataPosterCardActions. */
