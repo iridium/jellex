@@ -86,25 +86,54 @@
 		) ?? []
 	);
 
+	// The open menu's element, measured to keep it inside the window.
+	let menuEl: HTMLElement | null = null;
+	const EDGE = 8;
+
 	function place() {
 		if (!root) return;
 		const r = root.getBoundingClientRect();
 		const p: Record<string, string> = {};
-		if (placement === 'above') p.bottom = `${window.innerHeight - r.top + 4}px`;
 		// Plex opens menus flush under their trigger (the library toolbar's
 		// and the stream pickers' measured at 0) unless a menu sets its own
-		// popper offset.
-		else p.top = `${r.bottom + (offset ?? 0)}px`;
-		if (align === 'right') p.right = `${window.innerWidth - r.right}px`;
-		else p.left = `${r.left}px`;
+		// popper offset. A menu that doesn't fit there flips to the other
+		// side if that has more room, and scrolls within what's left.
+		const gap = placement === 'above' ? 4 : (offset ?? 0);
+		const below = window.innerHeight - r.bottom - gap - EDGE;
+		const above = r.top - gap - EDGE;
+		let up = placement === 'above';
+		if (menuEl) {
+			const h = menuEl.scrollHeight;
+			if (up ? h > above && below > above : h > below && above > below) up = !up;
+			menuEl.style.maxHeight = `${Math.max(0, up ? above : below)}px`;
+			// Long labels (subtitle tracks) never make it wider than the window.
+			menuEl.style.maxWidth = `${window.innerWidth - 2 * EDGE}px`;
+		}
+		if (up) p.bottom = `${window.innerHeight - r.top + gap}px`;
+		else p.top = `${r.bottom + gap}px`;
+		const w = menuEl?.offsetWidth ?? 0;
+		if (align === 'right')
+			p.right = `${Math.max(EDGE, Math.min(window.innerWidth - r.right, window.innerWidth - EDGE - w))}px`;
+		else p.left = `${Math.max(EDGE, Math.min(r.left, window.innerWidth - EDGE - w))}px`;
 		pos = p;
 	}
 
 	let menuEls = new Set<HTMLElement>();
 	function enter(el: HTMLElement) {
 		menuEls.add(el);
+		menuEl = el;
+		place();
+		// Drill-ins and late-loading items change the menu's size.
+		const resized = new ResizeObserver(() => place());
+		resized.observe(el);
 		menuIn(el);
-		return { destroy: () => menuEls.delete(el) };
+		return {
+			destroy: () => {
+				resized.disconnect();
+				menuEls.delete(el);
+				if (menuEl === el) menuEl = null;
+			}
+		};
 	}
 	let closing = false;
 	async function close() {
