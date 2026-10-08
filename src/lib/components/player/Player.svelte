@@ -169,7 +169,8 @@
 
 	// Settings > Player > Subtitle Position: top, middle or bottom lines.
 	function placeCues() {
-		const cues = media?.textTracks[0]?.cues;
+		const track = Array.from(media?.textTracks ?? []).find((t) => t.mode === 'showing');
+		const cues = track?.cues;
 		if (!cues) return;
 		const where = settings.value.subtitlePosition;
 		for (const cue of Array.from(cues) as VTTCue[]) {
@@ -314,15 +315,18 @@
 		crossorigin="anonymous"
 		onclick={() => mini && player.expand()}
 	>
-		{#if player.stream?.subtitleUrl}
-			<track
-				kind="subtitles"
-				src={player.stream.subtitleUrl}
-				default
-				label="Subtitles"
-				onload={placeCues}
-			/>
-		{/if}
+		<!-- A new track per stream: the old one is disabled on teardown. -->
+		{#key player.stream}
+			{#if player.stream?.subtitleUrl}
+				<track
+					kind="subtitles"
+					src={player.stream.subtitleUrl}
+					default
+					label="Subtitles"
+					onload={placeCues}
+				/>
+			{/if}
+		{/key}
 	</video>
 
 	{#if player.mode !== 'closed'}

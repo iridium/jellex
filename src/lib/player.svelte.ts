@@ -393,6 +393,9 @@ class Player {
 		this.hls = null;
 		this.stream = null;
 		if (this.el) {
+			// Turn subtitles off first: a cue on screen stays drawn after its
+			// track is removed or the source changes.
+			for (const t of Array.from(this.el.textTracks)) t.mode = 'disabled';
 			this.el.removeAttribute('src');
 			this.el.load();
 		}
