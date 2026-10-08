@@ -11,7 +11,12 @@ import {
 	type Pivot,
 	type SortKey
 } from '#lib/library.ts';
-import { rememberedPivot, rememberPivot } from '#lib/settings.svelte.ts';
+import {
+	rememberedPivot,
+	rememberedSort,
+	rememberPivot,
+	rememberSort
+} from '#lib/settings.svelte.ts';
 import type { PageLoad } from './$types';
 
 // Plex's library page: ?pivot=recommended|library|collections, and for the
@@ -49,10 +54,19 @@ export const load: PageLoad = async ({ parent, params, url }) => {
 		? (types.find((t) => t.key === q.get('type'))?.key ?? types[0].key)
 		: undefined;
 	const typeSorts = sortsFor(type);
-	const sortDef =
-		typeSorts.find((s) => s.key === q.get('sort')) ??
-		(hub ? sorts.find((s) => s.key === 'DateCreated')! : (typeSorts[0] ?? sorts[0]));
+	// A chosen sort is remembered per library and type, and used when the
+	// URL doesn't name one. The hub list always sorts newest first.
+	const sortKey = `${view.Id}:${type ?? pivot}`;
+	const chosen = typeSorts.find((s) => s.key === q.get('sort'));
 	const order = q.get('order');
+	if (!hub && chosen)
+		rememberSort(sortKey, { sort: chosen.key, desc: order ? order === 'desc' : chosen.desc });
+	const saved = !hub && !chosen ? rememberedSort(sortKey) : undefined;
+	const savedDef = saved && typeSorts.find((s) => s.key === saved.sort);
+	const sortDef =
+		chosen ??
+		savedDef ??
+		(hub ? sorts.find((s) => s.key === 'DateCreated')! : (typeSorts[0] ?? sorts[0]));
 	const filter = (filters.find((f) => f.key === q.get('filter'))?.key ?? 'all') as FilterKey;
 
 	return {
@@ -61,7 +75,7 @@ export const load: PageLoad = async ({ parent, params, url }) => {
 		pivot,
 		type,
 		sort: sortDef.key as SortKey,
-		desc: order ? order === 'desc' : sortDef.desc,
+		desc: order ? order === 'desc' : savedDef && sortDef === savedDef ? saved!.desc : sortDef.desc,
 		filter,
 		genre: q.get('genre') ?? undefined,
 		year: q.get('year') ? Number(q.get('year')) : undefined,

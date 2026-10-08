@@ -66,9 +66,32 @@ export function rememberPivot(viewId: string, pivot: string) {
 	}
 }
 
-/** "Reset Customization": the sidebar's pins and collapsed state. */
+// Each library grid's last sort (per library and type), as Plex keeps it.
+const SORTS = 'jellex.sorts';
+export interface SavedSort {
+	sort: string;
+	desc: boolean;
+}
+export function rememberedSort(key: string): SavedSort | undefined {
+	try {
+		return JSON.parse(localStorage.getItem(SORTS) ?? '{}')[key];
+	} catch {
+		return undefined;
+	}
+}
+export function rememberSort(key: string, sort: SavedSort) {
+	try {
+		const all = JSON.parse(localStorage.getItem(SORTS) ?? '{}');
+		all[key] = sort;
+		localStorage.setItem(SORTS, JSON.stringify(all));
+	} catch {
+		// Not persisted.
+	}
+}
+
+/** "Reset Customization": the sidebar's pins and collapsed state, remembered tabs and sorts. */
 export function resetCustomization() {
-	for (const key of ['jellex.pins', 'jellex.sidebarCollapsed', PIVOTS]) {
+	for (const key of ['jellex.pins', 'jellex.sidebarCollapsed', PIVOTS, SORTS]) {
 		try {
 			localStorage.removeItem(key);
 		} catch {
