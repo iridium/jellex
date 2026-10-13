@@ -14,8 +14,7 @@ Jellyfin's data. See "Copying Plex Web" below for the workflow.
 ## Layout
 
 - `src/routes` – SvelteKit routes. The app runs in SPA mode (`ssr = false`
-  in `+layout.ts`), deployed to Cloudflare Workers with
-  `@sveltejs/adapter-cloudflare`.
+  in `+layout.ts`, `adapter-static` with `index.html` as the fallback).
 - `src/lib` – shared code: the Jellyfin session (`session.svelte.ts`),
   image URLs (`images.ts`), components, Plex's icon set (`icons.ts`,
   rendered by `components/Icon.svelte`) and Plex's design tokens
@@ -45,9 +44,10 @@ server, which the login page's "Try the Jellyfin demo" button signs in to.
 | jellex dev server    | http://localhost:32400           |
 
 Develop with `npm install && npm run dev` (Vite with hot reload on port
-32400). `npm run build` writes the worker and assets to
-`.svelte-kit/cloudflare`, and `npx wrangler deploy` deploys them to
-Cloudflare Workers using `wrangler.jsonc`; Cloudflare's Git builds run
+32400). `npm run build` writes the static site to `build/`, with
+`index.html` as the fallback for every route; any static host serves it.
+`npx wrangler deploy` deploys it to Cloudflare Workers as static assets
+only (no worker script) using `wrangler.jsonc`; Cloudflare's Git builds run
 exactly those two commands. Keep `wrangler.jsonc` in the repo: without it
 wrangler auto-configures the project at deploy time and rewrites the build
 script. Nothing reads a `.env` file.

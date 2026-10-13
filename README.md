@@ -13,8 +13,9 @@ A Plex Web-style client for [Jellyfin](https://jellyfin.org).
 > jellex was written entirely by an LLM (Claude) in directed sessions.
 
 jellex is a single-page app that talks to the Jellyfin API directly from the
-browser: there is no backend to run. It deploys to Cloudflare Workers; point
-it at your server and sign in.
+browser: there is no backend to run. Build it and serve the `build/`
+directory from anywhere (a static host, a reverse proxy next to Jellyfin, or
+a Jellyfin plugin), then point it at your server and sign in.
 
 ![jellex's home page, with a movie playing in the mini player](assets/screenshot.webp)
 
@@ -27,6 +28,6 @@ npm run dev
 
 Then open http://localhost:32400 and sign in to your Jellyfin, or use "Try
 the Jellyfin demo" to sign in to Jellyfin's public demo server.
-`npm run build` builds it, and `npx wrangler deploy` deploys it
-(`wrangler.jsonc`). See
+`npm run build` writes the static site to `build/`, and
+`npx wrangler deploy` deploys it to Cloudflare (`wrangler.jsonc`). See
 [AGENTS.md](AGENTS.md) for more.
