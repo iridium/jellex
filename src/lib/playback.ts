@@ -189,14 +189,16 @@ async function webCodecsProfile(): Promise<DeviceProfile> {
 				() => null
 			)
 		)?.supported;
-	const [hevc, av1, aac, opus] = await Promise.all([
+	const [hevc, av1, aac, opus, mp3] = await Promise.all([
 		video('hvc1.1.6.L120.90'),
 		video('av01.0.08M.08'),
 		audio('mp4a.40.2'),
-		audio('opus')
+		audio('opus'),
+		audio('mp3')
 	]);
 	const videoCodecs = ['h264', ...(hevc ? ['hevc'] : []), ...(av1 ? ['av1'] : [])];
-	const audioCodecs = [...(aac ? ['aac'] : []), ...(opus ? ['opus'] : [])];
+	// In order of preference: Jellyfin transcodes to the first.
+	const audioCodecs = [...(aac ? ['aac'] : []), ...(opus ? ['opus'] : []), ...(mp3 ? ['mp3'] : [])];
 	const base = deviceProfile();
 	return {
 		...base,

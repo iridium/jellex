@@ -113,9 +113,7 @@
 				</div>
 				<div class="form-group">
 					<label><input type="checkbox" bind:checked={draft.carMode} /> Car mode</label>
-					<p class="help">
-						Makes everything bigger for in-car screens, and plays video with WebCodecs on a canvas.
-					</p>
+					<p class="help">Plays video with WebCodecs on a canvas instead of a video element.</p>
 				</div>
 				{#if advanced}
 					<hr />

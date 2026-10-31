@@ -82,13 +82,12 @@ script. Nothing reads a `.env` file.
   Jellyfin's HLS (natively or via hls.js). It reports start, progress and
   stop; the stop also goes out on `pagehide`, because Jellyfin treats a
   session that ends without one as watched to the end.
-- Car mode (Settings > General) zooms the whole page 1.5× (`html.car-mode`)
-  and plays video through `src/lib/webcodecs/`: Jellyfin's fMP4 HLS (with
-  subtitles burned in), demuxed by `fmp4.ts`, decoded with WebCodecs and
-  drawn to a canvas by `canvas-media.ts`, which mimics the slice of
-  HTMLMediaElement the player uses. Under CSS zoom, `getBoundingClientRect`
-  and pointer coordinates are window pixels while styles and `clientWidth`
-  are CSS pixels: divide by `currentCSSZoom` (or use ratios) when mixing them.
+- Car mode (Settings > General) plays video through `src/lib/webcodecs/`:
+  Jellyfin's fMP4 HLS (with subtitles burned in), demuxed by `fmp4.ts`,
+  decoded with WebCodecs and drawn to a canvas by `canvas-media.ts`, which
+  mimics the slice of HTMLMediaElement the player uses. Audio plays on an
+  AudioContext whose clock drives the picture. ffmpeg writes the audio's
+  first decode time as a negative number (AAC priming), so `tfdt` is signed.
 - Jellyfin marks anything shorter than `MinResumeDurationSeconds` (300s by
   default) as watched whenever playback stops, and a stopped session saves
   its position. The demo server is shared, so tests that open the player

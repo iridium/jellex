@@ -124,11 +124,6 @@ export const accentPresets = [
 	{ label: 'Pink', main: '#e45ba0' }
 ] as const;
 
-/** Car mode scales the whole UI (`html.car-mode` in layout.css). */
-export function applyCarMode(on: boolean) {
-	document.documentElement.classList.toggle('car-mode', on);
-}
-
 export function applyTheme(accent: string) {
 	const preset = accentPresets.find((p) => p.main === accent.toLowerCase());
 	const dark =

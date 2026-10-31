@@ -118,6 +118,8 @@ class Player {
 	stream = $state<Stream | null>(null);
 	loading = $state(false);
 	error = $state('');
+	/** Car mode: why the video is playing without sound, if it is. */
+	warning = $state('');
 	paused = $state(true);
 	currentTime = $state(0);
 	duration = $state(0);
@@ -186,6 +188,9 @@ class Player {
 			el.addEventListener(type, () => this.el === el && fn());
 		on('error', () => {
 			if (el instanceof CanvasMedia) this.error = el.error || 'Playback failed';
+		});
+		on('warning', () => {
+			if (el instanceof CanvasMedia) this.warning = el.warning;
 		});
 		on('timeupdate', () => {
 			this.currentTime = el.currentTime;
@@ -351,23 +356,12 @@ class Player {
 		this.item = entry;
 		this.loading = true;
 		this.error = '';
+		this.warning = '';
 		this.currentTime = startTicks / 1e7;
 		this.duration = (entry.RunTimeTicks ?? 0) / 1e7;
 		this.buffered = 0;
 		this.markers = [];
 		this.hasFrames = false;
-		// Car mode plays video on the WebCodecs canvas; music stays on <video>.
-		const canvas =
-			settings.value.carMode && entry.MediaType !== 'Audio' && CanvasMedia.supported
-				? this.canvas
-				: null;
-		this.usingCanvas = !!canvas;
-		this.el = canvas ?? this.video;
-		if (this.el) {
-			this.el.volume = this.volume;
-			this.el.muted = this.muted;
-		}
-
 		try {
 			const api = session.requireApi;
 			const [{ data: full }, segments] = await Promise.all([
@@ -380,6 +374,19 @@ class Player {
 			if (token !== this.loadToken) return;
 			this.item = full;
 			this.markers = markersFor(full, segments);
+			// Car mode plays video on the WebCodecs canvas; music stays on
+			// <video>. Chosen after a round trip: a /play link starts before
+			// the Player component has attached its canvas.
+			const canvas =
+				settings.value.carMode && entry.MediaType !== 'Audio' && CanvasMedia.supported
+					? this.canvas
+					: null;
+			this.usingCanvas = !!canvas;
+			this.el = canvas ?? this.video;
+			if (this.el) {
+				this.el.volume = this.volume;
+				this.el.muted = this.muted;
+			}
 			const s = await getStream(full, {
 				startTicks,
 				audio: this.audioIndex,

@@ -249,13 +249,14 @@ export function parseSegment(b: Uint8Array, tracks: Track[]): Sample[] {
 			if (tf & 0x10) ((defSize = v.getUint32(o)), (o += 4));
 			if (tf & 0x20) defFlags = v.getUint32(o);
 
+			// ffmpeg starts AAC a frame early (the encoder's priming) and
+			// writes that negative decode time as a 64-bit two's complement:
+			// read unsigned, it would put the audio aeons ahead of the video.
 			const tfdt = child(b, traf, 'tfdt');
 			let dts = 0;
 			if (tfdt)
 				dts =
-					b[tfdt.start] === 1
-						? Number(v.getBigUint64(tfdt.start + 4))
-						: v.getUint32(tfdt.start + 4);
+					b[tfdt.start] === 1 ? Number(v.getBigInt64(tfdt.start + 4)) : v.getUint32(tfdt.start + 4);
 
 			let dataEnd = baseOffset;
 			for (const trun of boxes(b, traf.start, traf.end)) {

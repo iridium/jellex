@@ -64,6 +64,53 @@ async function readPlaylist(url: string, signal: AbortSignal) {
 	return { init: new URL(map[1], base).href, segments, duration: start };
 }
 
+/** Integer sample formats' full scale, to map them to -1…1. */
+const SAMPLE_TYPES = {
+	u8: [Uint8Array, 128, 128],
+	s16: [Int16Array, 32768, 0],
+	s32: [Int32Array, 2147483648, 0],
+	f32: [Float32Array, 1, 0]
+} as const;
+
+/**
+ * Copies decoded audio into an AudioBuffer. Chromium only learnt to
+ * convert sample formats in AudioData.copyTo in later releases (car
+ * browsers run older ones), so when it can't, the native samples are read
+ * and converted here.
+ */
+function toAudioBuffer(ctx: AudioContext, d: AudioData): AudioBuffer {
+	const frames = d.numberOfFrames;
+	const channels = d.numberOfChannels;
+	const buffer = ctx.createBuffer(channels, frames, d.sampleRate);
+	const planes = Array.from({ length: channels }, () => new Float32Array(frames));
+	try {
+		planes.forEach((plane, ch) => d.copyTo(plane, { planeIndex: ch, format: 'f32-planar' }));
+	} catch {
+		const format = d.format ?? 'f32-planar';
+		const planar = format.endsWith('-planar');
+		const [Type, scale, bias] =
+			SAMPLE_TYPES[format.replace('-planar', '') as keyof typeof SAMPLE_TYPES];
+		const read = (planeIndex: number) => {
+			const out = new Type(d.allocationSize({ planeIndex }) / Type.BYTES_PER_ELEMENT);
+			d.copyTo(out, { planeIndex });
+			return out;
+		};
+		if (planar) {
+			planes.forEach((plane, ch) => {
+				const src = read(ch);
+				for (let i = 0; i < frames; i++) plane[i] = (src[i] - bias) / scale;
+			});
+		} else {
+			const src = read(0);
+			for (let i = 0; i < frames; i++)
+				for (let ch = 0; ch < channels; ch++)
+					planes[ch][i] = (src[i * channels + ch] - bias) / scale;
+		}
+	}
+	planes.forEach((plane, ch) => buffer.copyToChannel(plane, ch));
+	return buffer;
+}
+
 export class CanvasMedia extends EventTarget {
 	readonly canvas: HTMLCanvasElement;
 	private draw: CanvasRenderingContext2D;
@@ -246,6 +293,15 @@ export class CanvasMedia extends EventTarget {
 	}
 	error = '';
 
+	/** Why the picture is playing without sound, if it is; a 'warning' event announces changes. */
+	warning = '';
+	private warn(message: string, e?: unknown) {
+		console.warn('[car mode]', message, e ?? '');
+		if (this.warning === message) return;
+		this.warning = message;
+		this.emit('warning');
+	}
+
 	private ensureAudio() {
 		if (this.audio) return;
 		this.audio = new AudioContext({ latencyHint: 'playback' });
@@ -254,6 +310,14 @@ export class CanvasMedia extends EventTarget {
 		this.audio.suspend();
 		this.clockAt = this.audio.currentTime;
 		this.applyVolume();
+		// Playback starts after network round trips, outside the click that
+		// asked for it, and a browser may hold a context it considers
+		// autoplay until the next tap or key press. Any one retries it.
+		const unlock = () => {
+			if (this.audio?.state !== 'running') this.syncClock();
+		};
+		for (const type of ['pointerdown', 'pointerup', 'touchend', 'keydown'])
+			window.addEventListener(type, unlock, { capture: true, passive: true });
 	}
 
 	private applyVolume() {
@@ -280,8 +344,12 @@ export class CanvasMedia extends EventTarget {
 			numberOfChannels: a.channels
 		};
 		// Without a usable audio decoder, play the picture silently.
-		if (this.audioConfig && !(await AudioDecoder.isConfigSupported(this.audioConfig)).supported) {
-			console.warn('[car mode] no WebCodecs decoder for', a?.codec, '- playing without sound');
+		this.warning = '';
+		if (!a) this.warn('This video has no audio track');
+		else if (
+			!(await AudioDecoder.isConfigSupported(this.audioConfig!).catch(() => null))?.supported
+		) {
+			this.warn(`This browser can’t decode ${a.codec} audio, so there’s no sound`);
 			this.audioConfig = undefined;
 		}
 		this.videoDecoder = new VideoDecoder({
@@ -290,9 +358,10 @@ export class CanvasMedia extends EventTarget {
 		});
 		this.videoDecoder.configure(this.videoConfig);
 		if (this.audioConfig) {
+			// An audio failure leaves the picture playing, silently.
 			this.audioDecoder = new AudioDecoder({
 				output: (d) => this.onAudio(d),
-				error: (e) => this.fail(e)
+				error: (e) => this.warn('The audio stopped decoding', e)
 			});
 			this.audioDecoder.configure(this.audioConfig);
 		}
@@ -414,7 +483,7 @@ export class CanvasMedia extends EventTarget {
 		// Audio waits for the seek to land, so it's scheduled against the
 		// clock the picture starts from.
 		const ad = this.audioDecoder;
-		if (ad && this.seekTarget === null) {
+		if (ad?.state === 'configured' && this.seekTarget === null) {
 			while (this.audioQueue.length && this.audioQueue[0].pts < now + AUDIO_AHEAD) {
 				const s = this.audioQueue.shift()!;
 				if (s.pts + s.duration < now) continue;
@@ -427,7 +496,7 @@ export class CanvasMedia extends EventTarget {
 					})
 				);
 			}
-		} else if (!ad) this.audioQueue = [];
+		} else if (ad?.state !== 'configured') this.audioQueue = [];
 
 		this.checkStall(now);
 	}
@@ -487,11 +556,12 @@ export class CanvasMedia extends EventTarget {
 	private onAudio(d: AudioData) {
 		const ctx = this.audio;
 		if (!ctx || !this.gain) return d.close();
-		const buffer = ctx.createBuffer(d.numberOfChannels, d.numberOfFrames, d.sampleRate);
-		for (let ch = 0; ch < d.numberOfChannels; ch++) {
-			const plane = new Float32Array(d.numberOfFrames);
-			d.copyTo(plane, { planeIndex: ch, format: 'f32-planar' });
-			buffer.copyToChannel(plane, ch);
+		let buffer: AudioBuffer;
+		try {
+			buffer = toAudioBuffer(ctx, d);
+		} catch (e) {
+			this.warn(`Couldn’t read the decoded audio (${d.format})`, e);
+			return d.close();
 		}
 		const start = d.timestamp / 1e6;
 		d.close();

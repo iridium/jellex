@@ -278,6 +278,10 @@
 				<div class="spinner"><p class="error">{player.error}</p></div>
 			{/if}
 
+			{#if player.warning && !player.loading && !player.error && !barsHidden}
+				<p class="warning" role="status">{player.warning}</p>
+			{/if}
+
 			{#if marker && player.panel === 'none'}
 				<!-- Plex: AudioVideoFullPlayer-overlayButton. -->
 				<button
@@ -547,6 +551,21 @@
 	/* Skip Intro / Skip Credits. */
 	/* Plex: AudioVideoFullPlayer-overlayButton — fixed 120px up, shown and
 	   hidden without animation, whether or not the controls are showing. */
+	/* Car mode's "no sound" notice: shown with the controls. */
+	.warning {
+		position: absolute;
+		top: 72px;
+		left: 50%;
+		z-index: 3;
+		max-width: calc(100% - 32px);
+		padding: 8px 16px;
+		border-radius: 4px;
+		background: #2d2d2d;
+		color: var(--color-text-alert);
+		transform: translateX(-50%);
+		text-align: center;
+		pointer-events: none;
+	}
 	.skip {
 		position: absolute;
 		right: 20px;
