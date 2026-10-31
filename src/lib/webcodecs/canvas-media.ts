@@ -1,9 +1,20 @@
-// Car mode's playback engine: Jellyfin's fMP4 HLS, demuxed here, decoded
-// with WebCodecs and drawn to a canvas, with the audio scheduled on an
-// AudioContext whose clock drives the video. It exposes the slice of
-// HTMLMediaElement the player uses (currentTime, paused, play(), the usual
-// events, …), so the player drives it like the <video> element.
+// Car mode's playback engine: the picture is Jellyfin's fMP4 HLS, demuxed
+// here, decoded with WebCodecs and drawn to a canvas. The sound is a
+// separate audio-only stream played the normal way, by a hidden media
+// element (with hls.js where needed), and that element's clock drives the
+// picture. It exposes the slice of HTMLMediaElement the player uses
+// (currentTime, paused, play(), the usual events, …), so the player drives
+// it like the <video> element.
+import Hls from 'hls.js';
 import { parseInit, parseSegment, type Sample, type Track } from './fmp4.ts';
+
+/** The sound for the picture: an audio-only stream on the same timeline. */
+export interface AudioSource {
+	/** An HLS playlist, or anything else a media element plays. */
+	url: string;
+	/** Called when the stream is dropped, to stop its transcode. */
+	release?: () => void;
+}
 
 interface Segment {
 	url: string;
@@ -13,8 +24,6 @@ interface Segment {
 
 /** Seconds of media fetched ahead of the playhead. */
 const AHEAD = 20;
-/** Seconds of audio decoded and scheduled ahead of the playhead. */
-const AUDIO_AHEAD = 2;
 /** Decoded video frames kept ahead of the playhead. */
 const MAX_FRAMES = 8;
 
@@ -64,74 +73,29 @@ async function readPlaylist(url: string, signal: AbortSignal) {
 	return { init: new URL(map[1], base).href, segments, duration: start };
 }
 
-/** Integer sample formats' full scale, to map them to -1…1. */
-const SAMPLE_TYPES = {
-	u8: [Uint8Array, 128, 128],
-	s16: [Int16Array, 32768, 0],
-	s32: [Int32Array, 2147483648, 0],
-	f32: [Float32Array, 1, 0]
-} as const;
-
-/**
- * Copies decoded audio into an AudioBuffer. Chromium only learnt to
- * convert sample formats in AudioData.copyTo in later releases (car
- * browsers run older ones), so when it can't, the native samples are read
- * and converted here.
- */
-function toAudioBuffer(ctx: AudioContext, d: AudioData): AudioBuffer {
-	const frames = d.numberOfFrames;
-	const channels = d.numberOfChannels;
-	const buffer = ctx.createBuffer(channels, frames, d.sampleRate);
-	const planes = Array.from({ length: channels }, () => new Float32Array(frames));
-	try {
-		planes.forEach((plane, ch) => d.copyTo(plane, { planeIndex: ch, format: 'f32-planar' }));
-	} catch {
-		const format = d.format ?? 'f32-planar';
-		const planar = format.endsWith('-planar');
-		const [Type, scale, bias] =
-			SAMPLE_TYPES[format.replace('-planar', '') as keyof typeof SAMPLE_TYPES];
-		const read = (planeIndex: number) => {
-			const out = new Type(d.allocationSize({ planeIndex }) / Type.BYTES_PER_ELEMENT);
-			d.copyTo(out, { planeIndex });
-			return out;
-		};
-		if (planar) {
-			planes.forEach((plane, ch) => {
-				const src = read(ch);
-				for (let i = 0; i < frames; i++) plane[i] = (src[i] - bias) / scale;
-			});
-		} else {
-			const src = read(0);
-			for (let i = 0; i < frames; i++)
-				for (let ch = 0; ch < channels; ch++)
-					planes[ch][i] = (src[i * channels + ch] - bias) / scale;
-		}
-	}
-	planes.forEach((plane, ch) => buffer.copyToChannel(plane, ch));
-	return buffer;
-}
-
 export class CanvasMedia extends EventTarget {
 	readonly canvas: HTMLCanvasElement;
 	private draw: CanvasRenderingContext2D;
-	private audio: AudioContext | null = null;
-	private gain: GainNode | null = null;
+
+	/** Plays the sound: hidden, outside the Svelte tree. */
+	private sound: HTMLVideoElement;
+	private hls: Hls | null = null;
+	private audioSource?: AudioSource;
+	/** There is sound and it hasn't failed. */
+	private soundOk = false;
+	/** Where the sound should be once it can seek; the clock holds until then. */
+	private soundPending: number | null = null;
 
 	private segments: Segment[] = [];
 	private tracks: Track[] = [];
 	private videoTrack?: Track;
-	private audioTrack?: Track;
 	private videoDecoder: VideoDecoder | null = null;
-	private audioDecoder: AudioDecoder | null = null;
 	private videoConfig?: VideoDecoderConfig;
-	private audioConfig?: AudioDecoderConfig;
 
 	/** Demuxed, not yet decoded. */
 	private videoQueue: Sample[] = [];
-	private audioQueue: Sample[] = [];
 	/** Decoded, waiting for their time. */
 	private frames: VideoFrame[] = [];
-	private sources = new Set<AudioBufferSourceNode>();
 	/** Before the first keyframe after a seek, nothing can be decoded. */
 	private needKey = true;
 
@@ -143,11 +107,13 @@ export class CanvasMedia extends EventTarget {
 	private generation = 0;
 	private abort = new AbortController();
 
-	// The clock: media time `mediaAt` was at AudioContext time `clockAt`.
-	// The context is suspended while paused, stalled or ended, so its
-	// currentTime (and the scheduled audio) stops with the picture.
+	// The clock. While the sound plays, it is the sound element's
+	// currentTime, so the picture waits whenever the sound does. Without
+	// sound (none, failed, or ended first), media time `mediaAt` was at
+	// performance.now() `clockAtMs` and moves on while `running`.
 	private mediaAt = 0;
-	private clockAt = 0;
+	private clockAtMs = 0;
+	private running = false;
 	private seekTarget: number | null = null;
 	private stalled = false;
 	private opened = false;
@@ -166,10 +132,29 @@ export class CanvasMedia extends EventTarget {
 		super();
 		this.canvas = canvas;
 		this.draw = canvas.getContext('2d', { alpha: false })!;
+		const v = document.createElement('video');
+		v.playsInline = true;
+		v.preload = 'auto';
+		v.setAttribute('aria-hidden', 'true');
+		v.style.cssText =
+			'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+		document.body.append(v);
+		this.sound = v;
+		v.addEventListener('error', () => this.soundFailed(v.error?.message || 'media error'));
+		v.addEventListener('loadedmetadata', () => this.alignSound());
+		v.addEventListener('canplay', () => this.alignSound());
+		// Paused or played from outside (the car's media controls).
+		v.addEventListener('pause', () => {
+			if (this.soundOk && !v.ended && this.shouldRun()) this.pause();
+		});
+		v.addEventListener('play', () => {
+			if (this.soundOk && this._paused) void this.play();
+		});
+		v.addEventListener('ended', () => this.syncClock());
 	}
 
 	static get supported(): boolean {
-		return typeof VideoDecoder !== 'undefined' && typeof AudioDecoder !== 'undefined';
+		return typeof VideoDecoder !== 'undefined';
 	}
 
 	// The HTMLMediaElement slice the player uses.
@@ -227,13 +212,15 @@ export class CanvasMedia extends EventTarget {
 		this.emit('timeupdate');
 	}
 
-	/** Starts loading an HLS (fMP4) URL at `start` seconds, paused. */
-	async open(url: string, start = 0) {
+	/** Starts loading an HLS (fMP4) URL at `start` seconds, paused, with `audio` as its sound. */
+	async open(url: string, start = 0, audio?: AudioSource) {
 		this.reset();
 		const gen = this.generation;
 		const signal = this.abort.signal;
 		this.opened = true;
-		this.ensureAudio();
+		this.warning = '';
+		if (audio) this.loadSound(audio, start);
+		else this.warn('This video has no sound');
 		try {
 			const playlist = await readPlaylist(url, signal);
 			const init = await fetchOk(playlist.init, signal, 'bytes');
@@ -241,7 +228,6 @@ export class CanvasMedia extends EventTarget {
 			this.segments = playlist.segments;
 			this.tracks = parseInit(init);
 			this.videoTrack = this.tracks.find((t) => t.kind === 'video');
-			this.audioTrack = this.tracks.find((t) => t.kind === 'audio');
 			await this.configure();
 			if (gen !== this.generation) return;
 			this._duration = playlist.duration;
@@ -263,21 +249,21 @@ export class CanvasMedia extends EventTarget {
 		clearInterval(this.pumpTimer);
 		cancelAnimationFrame(this.raf);
 		this.flush();
-		for (const d of [this.videoDecoder, this.audioDecoder])
-			if (d && d.state !== 'closed') d.close();
-		this.videoDecoder = this.audioDecoder = null;
+		if (this.videoDecoder && this.videoDecoder.state !== 'closed') this.videoDecoder.close();
+		this.videoDecoder = null;
+		this.unloadSound();
 		this.segments = [];
 		this.tracks = [];
-		this.videoTrack = this.audioTrack = undefined;
+		this.videoTrack = undefined;
 		this.opened = false;
 		this.hasFrame = false;
 		this._paused = true;
 		this._ended = false;
 		this._duration = NaN;
 		this.mediaAt = this.rangeStart = this.bufferedEnd = 0;
+		this.running = false;
 		this.seekTarget = null;
 		this.stalled = false;
-		this.syncClock();
 		this.draw.fillStyle = '#000';
 		this.draw.fillRect(0, 0, this.canvas.width, this.canvas.height);
 	}
@@ -302,32 +288,69 @@ export class CanvasMedia extends EventTarget {
 		this.emit('warning');
 	}
 
-	private ensureAudio() {
-		if (this.audio) return;
-		this.audio = new AudioContext({ latencyHint: 'playback' });
-		this.gain = this.audio.createGain();
-		this.gain.connect(this.audio.destination);
-		this.audio.suspend();
-		this.clockAt = this.audio.currentTime;
+	// The sound.
+	private loadSound(audio: AudioSource, start: number) {
+		const v = this.sound;
+		this.audioSource = audio;
+		this.soundOk = true;
+		this.soundPending = start;
+		if (!v.canPlayType('application/vnd.apple.mpegurl') && Hls.isSupported()) {
+			const hls = new Hls({ startPosition: start });
+			hls.on(Hls.Events.ERROR, (_e, d) => {
+				if (d.fatal && hls === this.hls) this.soundFailed(d.details);
+			});
+			hls.loadSource(audio.url);
+			hls.attachMedia(v);
+			this.hls = hls;
+		} else {
+			v.src = audio.url;
+		}
 		this.applyVolume();
-		// Playback starts after network round trips, outside the click that
-		// asked for it, and a browser may hold a context it considers
-		// autoplay until the next tap or key press. Any one retries it.
-		const unlock = () => {
-			if (this.audio?.state !== 'running') this.syncClock();
-		};
-		for (const type of ['pointerdown', 'pointerup', 'touchend', 'keydown'])
-			window.addEventListener(type, unlock, { capture: true, passive: true });
+	}
+
+	private unloadSound() {
+		this.soundOk = false;
+		this.soundPending = null;
+		this.hls?.destroy();
+		this.hls = null;
+		const v = this.sound;
+		v.pause();
+		if (v.hasAttribute('src')) {
+			v.removeAttribute('src');
+			v.load();
+		}
+		this.audioSource?.release?.();
+		this.audioSource = undefined;
+	}
+
+	/** The sound stopped for good: carry on with the picture alone. */
+	private soundFailed(why: string) {
+		if (!this.soundOk || !this.opened) return;
+		this.mediaAt = this.clock();
+		this.clockAtMs = performance.now();
+		this.soundOk = false;
+		this.soundPending = null;
+		this.sound.pause();
+		this.warn('The sound couldn’t be played', why);
+	}
+
+	/** Moves the sound to `soundPending` once it has loaded enough to seek. */
+	private alignSound() {
+		const t = this.soundPending;
+		const v = this.sound;
+		if (t === null || !this.soundOk || v.readyState < HTMLMediaElement.HAVE_METADATA) return;
+		this.soundPending = null;
+		if (Math.abs(v.currentTime - t) > 0.25) v.currentTime = t;
 	}
 
 	private applyVolume() {
-		if (this.gain) this.gain.gain.value = this._muted ? 0 : this._volume;
+		this.sound.volume = this._volume;
+		this.sound.muted = this._muted;
 		this.emit('volumechange');
 	}
 
 	private async configure() {
 		const v = this.videoTrack;
-		const a = this.audioTrack;
 		if (!v) throw new Error('The stream has no video');
 		this.videoConfig = {
 			codec: v.codec,
@@ -337,34 +360,11 @@ export class CanvasMedia extends EventTarget {
 		};
 		if (!(await VideoDecoder.isConfigSupported(this.videoConfig)).supported)
 			throw new Error(`This browser can’t decode ${v.codec} with WebCodecs`);
-		this.audioConfig = a && {
-			codec: a.codec,
-			description: a.description,
-			sampleRate: a.sampleRate,
-			numberOfChannels: a.channels
-		};
-		// Without a usable audio decoder, play the picture silently.
-		this.warning = '';
-		if (!a) this.warn('This video has no audio track');
-		else if (
-			!(await AudioDecoder.isConfigSupported(this.audioConfig!).catch(() => null))?.supported
-		) {
-			this.warn(`This browser can’t decode ${a.codec} audio, so there’s no sound`);
-			this.audioConfig = undefined;
-		}
 		this.videoDecoder = new VideoDecoder({
 			output: (f) => this.onFrame(f),
 			error: (e) => this.fail(e)
 		});
 		this.videoDecoder.configure(this.videoConfig);
-		if (this.audioConfig) {
-			// An audio failure leaves the picture playing, silently.
-			this.audioDecoder = new AudioDecoder({
-				output: (d) => this.onAudio(d),
-				error: (e) => this.warn('The audio stopped decoding', e)
-			});
-			this.audioDecoder.configure(this.audioConfig);
-		}
 	}
 
 	/** Drops everything buffered and decoding (seek, reset). */
@@ -372,25 +372,11 @@ export class CanvasMedia extends EventTarget {
 		for (const f of this.frames) f.close();
 		this.frames = [];
 		this.videoQueue = [];
-		this.audioQueue = [];
-		for (const s of this.sources) {
-			s.onended = null;
-			try {
-				s.stop();
-			} catch {
-				// Not started.
-			}
-		}
-		this.sources.clear();
 		this.needKey = true;
-		for (const [d, config] of [
-			[this.videoDecoder, this.videoConfig],
-			[this.audioDecoder, this.audioConfig]
-		] as const) {
-			if (d && d.state !== 'closed') {
-				d.reset();
-				d.configure(config as VideoDecoderConfig & AudioDecoderConfig);
-			}
+		const d = this.videoDecoder;
+		if (d && d.state !== 'closed' && this.videoConfig) {
+			d.reset();
+			d.configure(this.videoConfig);
 		}
 	}
 
@@ -418,29 +404,57 @@ export class CanvasMedia extends EventTarget {
 		this.pump();
 	}
 
-	/** Media time now (the picture's, so behind the audio by its output latency). */
+	/** The sound drives the clock (rather than the wall clock). */
+	private soundDrives() {
+		return this.soundOk && !this.sound.ended;
+	}
+
+	/** Media time now. */
 	private clock(): number {
-		if (!this.audio) return this.mediaAt;
-		return this.mediaAt + Math.max(0, this.audio.currentTime - this.clockAt);
+		const now = performance.now();
+		if (this.soundDrives()) {
+			const v = this.sound;
+			// Held while the sound loads or seeks.
+			if (
+				this.soundPending === null &&
+				!v.seeking &&
+				v.readyState >= HTMLMediaElement.HAVE_METADATA
+			)
+				this.mediaAt = v.currentTime;
+		} else if (this.running) {
+			this.mediaAt += (now - this.clockAtMs) / 1000;
+		}
+		this.clockAtMs = now;
+		return this.mediaAt;
 	}
 	private setClock(t: number) {
 		this.mediaAt = t;
-		this.clockAt = this.audio?.currentTime ?? 0;
+		this.clockAtMs = performance.now();
+		if (this.soundOk) {
+			this.soundPending = t;
+			this.alignSound();
+		}
 	}
 
-	/** Runs the AudioContext only while time should move. */
+	private shouldRun() {
+		return !this._paused && !this.stalled && !this._ended && this.seekTarget === null;
+	}
+
+	/** Runs the clock, and the sound, only while time should move. */
 	private syncClock() {
-		const a = this.audio;
-		if (!a) return;
-		const run = !this._paused && !this.stalled && !this._ended && this.seekTarget === null;
-		if (run && a.state !== 'running') {
-			// Restart the clock from where it stood.
-			this.setClock(this.clock());
-			a.resume().catch(() => this.pause());
-		} else if (!run && a.state === 'running') {
-			this.setClock(this.clock());
-			a.suspend();
+		const run = this.shouldRun();
+		if (run !== this.running) {
+			this.clock();
+			this.running = run;
 		}
+		if (!this.soundOk) return;
+		const v = this.sound;
+		if (run && v.paused && !v.ended) {
+			v.play().catch((e: DOMException) => {
+				// Blocked as autoplay: wait for the play button.
+				if (e.name === 'NotAllowedError') this.pause();
+			});
+		} else if (!run && !v.paused) v.pause();
 	}
 
 	// Fetching and decoding.
@@ -480,24 +494,6 @@ export class CanvasMedia extends EventTarget {
 			);
 		}
 
-		// Audio waits for the seek to land, so it's scheduled against the
-		// clock the picture starts from.
-		const ad = this.audioDecoder;
-		if (ad?.state === 'configured' && this.seekTarget === null) {
-			while (this.audioQueue.length && this.audioQueue[0].pts < now + AUDIO_AHEAD) {
-				const s = this.audioQueue.shift()!;
-				if (s.pts + s.duration < now) continue;
-				ad.decode(
-					new EncodedAudioChunk({
-						type: 'key',
-						timestamp: Math.round(s.pts * 1e6),
-						duration: Math.round(s.duration * 1e6),
-						data: s.data
-					})
-				);
-			}
-		} else if (ad?.state !== 'configured') this.audioQueue = [];
-
 		this.checkStall(now);
 	}
 
@@ -508,8 +504,11 @@ export class CanvasMedia extends EventTarget {
 		try {
 			const bytes = await fetchOk(this.segments[index].url, this.abort.signal, 'bytes');
 			if (gen !== this.generation) return;
-			const samples = parseSegment(bytes, this.tracks);
-			const first = samples.find((s) => s.track === this.videoTrack?.id);
+			// The stream's own audio track goes unused: the sound comes separately.
+			const samples = parseSegment(bytes, this.tracks).filter(
+				(s) => s.track === this.videoTrack?.id
+			);
+			const first = samples[0];
 			// After a seek, a first segment that starts past the target
 			// (Jellyfin cuts on keyframes) moves the target to its first frame.
 			const firstAfterSeek = this.rangeStart === this.bufferedEnd;
@@ -524,8 +523,7 @@ export class CanvasMedia extends EventTarget {
 				this.rangeStart = first.pts;
 			}
 			for (const s of samples) {
-				if (s.track === this.videoTrack?.id) this.videoQueue.push(s);
-				else if (s.track === this.audioTrack?.id) this.audioQueue.push(s);
+				this.videoQueue.push(s);
 				this.bufferedEnd = Math.max(this.bufferedEnd, s.pts + s.duration);
 			}
 			this.nextSegment = index + 1;
@@ -551,31 +549,6 @@ export class CanvasMedia extends EventTarget {
 		let i = this.frames.length;
 		while (i > 0 && this.frames[i - 1].timestamp > f.timestamp) i--;
 		this.frames.splice(i, 0, f);
-	}
-
-	private onAudio(d: AudioData) {
-		const ctx = this.audio;
-		if (!ctx || !this.gain) return d.close();
-		let buffer: AudioBuffer;
-		try {
-			buffer = toAudioBuffer(ctx, d);
-		} catch (e) {
-			this.warn(`Couldn’t read the decoded audio (${d.format})`, e);
-			return d.close();
-		}
-		const start = d.timestamp / 1e6;
-		d.close();
-		// Where this buffer falls on the context's clock; a buffer that is
-		// partly in the past starts part-way in.
-		const when = this.clockAt + (start - this.mediaAt);
-		const offset = Math.max(0, ctx.currentTime - when);
-		if (offset >= buffer.duration) return;
-		const src = ctx.createBufferSource();
-		src.buffer = buffer;
-		src.connect(this.gain);
-		src.start(when + offset, offset);
-		src.onended = () => this.sources.delete(src);
-		this.sources.add(src);
 	}
 
 	// Buffering: hold the clock until there's media to play.
@@ -615,7 +588,7 @@ export class CanvasMedia extends EventTarget {
 	/**
 	 * Fetch, decode and show what's due. Runs every animation frame, and on
 	 * a timer too, since a hidden page gets no animation frames but should
-	 * keep its sound and finish seeks.
+	 * keep fetching and finish seeks.
 	 */
 	private tick() {
 		this.pump();
@@ -627,13 +600,13 @@ export class CanvasMedia extends EventTarget {
 			this.seekTarget = null;
 			this.setClock(Math.max(target, f.timestamp / 1e6));
 			this.paint(this.frames.shift()!);
-			this.audioQueue = this.audioQueue.filter((s) => s.pts + s.duration >= this.mediaAt);
 			this.syncClock();
 			this.emit('seeked');
 			this.emit('timeupdate');
 			return;
 		}
-		const now = this.clock() - (this.audio?.outputLatency || this.audio?.baseLatency || 0);
+		this.alignSound();
+		const now = this.clock();
 		let show: VideoFrame | undefined;
 		while (this.frames.length && this.frames[0].timestamp / 1e6 <= now) {
 			show?.close();

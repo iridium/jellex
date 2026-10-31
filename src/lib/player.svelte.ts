@@ -411,7 +411,7 @@ class Player {
 		const el = this.el;
 		if (!el) return;
 		if (el instanceof CanvasMedia) {
-			void el.open(s.url, start);
+			void el.open(s.url, start, s.audio);
 		} else if (s.hls && !el.canPlayType('application/vnd.apple.mpegurl') && Hls.isSupported()) {
 			this.hls = new Hls({ startPosition: start });
 			this.hls.loadSource(s.url);

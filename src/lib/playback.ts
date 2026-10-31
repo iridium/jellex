@@ -9,6 +9,7 @@ import { getLibraryApi } from '@jellyfin/sdk/lib/utils/api/library-api';
 import { getMediaInfoApi } from '@jellyfin/sdk/lib/utils/api/media-info-api';
 import { getShowApi } from '@jellyfin/sdk/lib/utils/api/show-api';
 import { session } from './session.svelte.ts';
+import type { AudioSource } from './webcodecs/canvas-media.ts';
 
 const PLAYABLE = ['Movie', 'Episode', 'Video', 'MusicVideo', 'Audio', 'Trailer'];
 
@@ -172,7 +173,7 @@ function deviceProfile(): DeviceProfile {
 }
 
 /**
- * Car mode's profile: everything as fMP4 HLS (demuxed and decoded with
+ * Car mode's profile: the picture as fMP4 HLS (demuxed and decoded with
  * WebCodecs), in the codecs this browser's decoders accept, with subtitles
  * burned in since there's no <video> to show text tracks.
  */
@@ -183,22 +184,8 @@ async function webCodecsProfile(): Promise<DeviceProfile> {
 				() => null
 			)
 		)?.supported;
-	const audio = async (codec: string) =>
-		!!(
-			await AudioDecoder.isConfigSupported({ codec, sampleRate: 48000, numberOfChannels: 2 }).catch(
-				() => null
-			)
-		)?.supported;
-	const [hevc, av1, aac, opus, mp3] = await Promise.all([
-		video('hvc1.1.6.L120.90'),
-		video('av01.0.08M.08'),
-		audio('mp4a.40.2'),
-		audio('opus'),
-		audio('mp3')
-	]);
+	const [hevc, av1] = await Promise.all([video('hvc1.1.6.L120.90'), video('av01.0.08M.08')]);
 	const videoCodecs = ['h264', ...(hevc ? ['hevc'] : []), ...(av1 ? ['av1'] : [])];
-	// In order of preference: Jellyfin transcodes to the first.
-	const audioCodecs = [...(aac ? ['aac'] : []), ...(opus ? ['opus'] : []), ...(mp3 ? ['mp3'] : [])];
 	const base = deviceProfile();
 	return {
 		...base,
@@ -208,7 +195,8 @@ async function webCodecsProfile(): Promise<DeviceProfile> {
 				Container: 'mp4',
 				Type: 'Video',
 				VideoCodec: videoCodecs.join(','),
-				AudioCodec: (audioCodecs.length ? audioCodecs : ['aac']).join(','),
+				// Unused: the sound plays from a separate stream (`Stream.audio`).
+				AudioCodec: 'aac',
 				Context: 'Streaming',
 				Protocol: 'hls',
 				MaxAudioChannels: '2',
@@ -230,6 +218,8 @@ export interface Stream {
 	method: 'DirectPlay' | 'DirectStream' | 'Transcode';
 	/** A WebVTT URL for the chosen subtitles, when delivered as a track. */
 	subtitleUrl?: string;
+	/** Car mode: the sound, as its own audio-only stream. */
+	audio?: AudioSource;
 }
 
 export async function getStream(
@@ -304,5 +294,51 @@ export async function getStream(
 					: `${sub.DeliveryUrl.includes('?') ? '&' : '?'}api_key=${token}`)
 			: undefined;
 
-	return { info, source, url, hls, method, subtitleUrl };
+	const audio = opts.webcodecs ? audioStream(item, source, url, opts.audio) : undefined;
+	return { info, source, url, hls, method, subtitleUrl, audio };
+}
+
+/**
+ * Car mode's sound: the chosen audio track as audio-only HLS, played by a
+ * hidden media element like any other stream. It is a transcode of its
+ * own, under its own play session: Jellyfin restarts a session's
+ * transcodes whenever one of them seeks.
+ */
+function audioStream(
+	item: BaseItemDto,
+	source: MediaSourceInfo,
+	videoUrl: string,
+	audioIndex: number | undefined
+): AudioSource {
+	const api = session.requireApi;
+	const token = api.accessToken;
+	const video = new URL(videoUrl).searchParams;
+	const deviceId = video.get('DeviceId') ?? '';
+	const playSessionId = `${video.get('PlaySessionId') ?? crypto.randomUUID().replace(/-/g, '')}a`;
+	const index = video.get('AudioStreamIndex') ?? audioIndex ?? source.DefaultAudioStreamIndex;
+	const q = new URLSearchParams({
+		MediaSourceId: source.Id!,
+		DeviceId: deviceId,
+		PlaySessionId: playSessionId,
+		AudioCodec: 'aac',
+		AudioBitrate: '192000',
+		TranscodingMaxAudioChannels: '2',
+		SegmentContainer: 'ts',
+		// Newer Jellyfin only takes ApiKey; older only api_key.
+		ApiKey: token,
+		api_key: token
+	});
+	if (index != null) q.set('AudioStreamIndex', String(index));
+	return {
+		url: `${api.basePath}/Audio/${item.Id}/master.m3u8?${q}`,
+		release: () => {
+			const stop = new URLSearchParams({
+				deviceId,
+				playSessionId,
+				ApiKey: token,
+				api_key: token
+			});
+			fetch(`${api.basePath}/Videos/ActiveEncodings?${stop}`, { method: 'DELETE' }).catch(() => {});
+		}
+	};
 }
