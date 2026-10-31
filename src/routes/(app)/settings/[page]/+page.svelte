@@ -111,6 +111,12 @@
 					>
 					<p class="help">Default to the last selected tab for a media source.</p>
 				</div>
+				<div class="form-group">
+					<label><input type="checkbox" bind:checked={draft.carMode} /> Car mode</label>
+					<p class="help">
+						Makes everything bigger for in-car screens, and plays video with WebCodecs on a canvas.
+					</p>
+				</div>
 				{#if advanced}
 					<hr />
 					<div class="form-group">

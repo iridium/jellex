@@ -94,6 +94,10 @@
 		if (!root) return;
 		const r = root.getBoundingClientRect();
 		const p: Record<string, string> = {};
+		// The maths is in window pixels; car mode zooms the page, so styles
+		// set from it are scaled back.
+		const z = zoom();
+		const px = (v: number) => `${v / z}px`;
 		// Plex opens menus flush under their trigger (the library toolbar's
 		// and the stream pickers' measured at 0) unless a menu sets its own
 		// popper offset. A menu that doesn't fit there flips to the other
@@ -103,19 +107,26 @@
 		const above = r.top - gap - EDGE;
 		let up = placement === 'above';
 		if (menuEl) {
-			const h = menuEl.scrollHeight;
+			const h = menuEl.scrollHeight * z;
 			if (up ? h > above && below > above : h > below && above > below) up = !up;
-			menuEl.style.maxHeight = `${Math.max(0, up ? above : below)}px`;
+			menuEl.style.maxHeight = px(Math.max(0, up ? above : below));
 			// Long labels (subtitle tracks) never make it wider than the window.
-			menuEl.style.maxWidth = `${window.innerWidth - 2 * EDGE}px`;
+			menuEl.style.maxWidth = px(window.innerWidth - 2 * EDGE);
 		}
-		if (up) p.bottom = `${window.innerHeight - r.top + gap}px`;
-		else p.top = `${r.bottom + gap}px`;
-		const w = menuEl?.offsetWidth ?? 0;
+		if (up) p.bottom = px(window.innerHeight - r.top + gap);
+		else p.top = px(r.bottom + gap);
+		const w = (menuEl?.offsetWidth ?? 0) * z;
 		if (align === 'right')
-			p.right = `${Math.max(EDGE, Math.min(window.innerWidth - r.right, window.innerWidth - EDGE - w))}px`;
-		else p.left = `${Math.max(EDGE, Math.min(r.left, window.innerWidth - EDGE - w))}px`;
+			p.right = px(
+				Math.max(EDGE, Math.min(window.innerWidth - r.right, window.innerWidth - EDGE - w))
+			);
+		else p.left = px(Math.max(EDGE, Math.min(r.left, window.innerWidth - EDGE - w)));
 		pos = p;
+	}
+
+	/** The page's CSS zoom (car mode), 1 where unsupported. */
+	function zoom() {
+		return document.documentElement.currentCSSZoom || 1;
 	}
 
 	let menuEls = new Set<HTMLElement>();
@@ -170,8 +181,9 @@
 
 	function openSub(item: MenuItem, e: MouseEvent, index: number) {
 		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		const left = r.right + 220 > window.innerWidth ? r.left - 220 : r.right;
-		sub = { index, items: item.items!, top: r.top - 8, left };
+		const z = zoom();
+		const left = r.right + 220 * z > window.innerWidth ? r.left - 220 * z : r.right;
+		sub = { index, items: item.items!, top: (r.top - 8 * z) / z, left: left / z };
 	}
 
 	$effect(() => {

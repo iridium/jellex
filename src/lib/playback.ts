@@ -171,6 +171,54 @@ function deviceProfile(): DeviceProfile {
 	};
 }
 
+/**
+ * Car mode's profile: everything as fMP4 HLS (demuxed and decoded with
+ * WebCodecs), in the codecs this browser's decoders accept, with subtitles
+ * burned in since there's no <video> to show text tracks.
+ */
+async function webCodecsProfile(): Promise<DeviceProfile> {
+	const video = async (codec: string) =>
+		!!(
+			await VideoDecoder.isConfigSupported({ codec, codedWidth: 1920, codedHeight: 1080 }).catch(
+				() => null
+			)
+		)?.supported;
+	const audio = async (codec: string) =>
+		!!(
+			await AudioDecoder.isConfigSupported({ codec, sampleRate: 48000, numberOfChannels: 2 }).catch(
+				() => null
+			)
+		)?.supported;
+	const [hevc, av1, aac, opus] = await Promise.all([
+		video('hvc1.1.6.L120.90'),
+		video('av01.0.08M.08'),
+		audio('mp4a.40.2'),
+		audio('opus')
+	]);
+	const videoCodecs = ['h264', ...(hevc ? ['hevc'] : []), ...(av1 ? ['av1'] : [])];
+	const audioCodecs = [...(aac ? ['aac'] : []), ...(opus ? ['opus'] : [])];
+	const base = deviceProfile();
+	return {
+		...base,
+		DirectPlayProfiles: base.DirectPlayProfiles!.filter((p) => p.Type === 'Audio'),
+		TranscodingProfiles: [
+			{
+				Container: 'mp4',
+				Type: 'Video',
+				VideoCodec: videoCodecs.join(','),
+				AudioCodec: (audioCodecs.length ? audioCodecs : ['aac']).join(','),
+				Context: 'Streaming',
+				Protocol: 'hls',
+				MaxAudioChannels: '2',
+				MinSegments: 1,
+				BreakOnNonKeyFrames: true
+			},
+			...base.TranscodingProfiles!.filter((p) => p.Type === 'Audio')
+		],
+		SubtitleProfiles: base.SubtitleProfiles!.map((p) => ({ ...p, Method: 'Encode' as const }))
+	};
+}
+
 export interface Stream {
 	info: PlaybackInfoResponse;
 	source: MediaSourceInfo;
@@ -184,9 +232,18 @@ export interface Stream {
 
 export async function getStream(
 	item: BaseItemDto,
-	opts: { startTicks: number; audio?: number; subtitle?: number; maxBitrate?: number }
+	opts: {
+		startTicks: number;
+		audio?: number;
+		subtitle?: number;
+		maxBitrate?: number;
+		/** Car mode: fMP4 HLS for the WebCodecs player. */
+		webcodecs?: boolean;
+	}
 ): Promise<Stream> {
 	const api = session.requireApi;
+	const direct = !opts.maxBitrate && !opts.webcodecs;
+	const profile = opts.webcodecs ? await webCodecsProfile() : deviceProfile();
 	const { data: info } = await getMediaInfoApi(api).getPostedPlaybackInfo({
 		itemId: item.Id!,
 		userId: session.userId,
@@ -196,15 +253,15 @@ export async function getStream(
 		autoOpenLiveStream: true,
 		maxStreamingBitrate: opts.maxBitrate,
 		// A bitrate cap means Plex's "Convert to …": always transcode.
-		enableDirectPlay: !opts.maxBitrate,
-		enableDirectStream: !opts.maxBitrate,
+		enableDirectPlay: direct,
+		enableDirectStream: direct,
 		enableTranscoding: true,
 		allowVideoStreamCopy: true,
 		allowAudioStreamCopy: true,
 		playbackInfoDto: {
 			DeviceProfile: opts.maxBitrate
-				? { ...deviceProfile(), MaxStreamingBitrate: opts.maxBitrate }
-				: deviceProfile()
+				? { ...profile, MaxStreamingBitrate: opts.maxBitrate }
+				: profile
 		}
 	});
 	const source = info.MediaSources?.[0];
@@ -230,6 +287,7 @@ export async function getStream(
 	} else {
 		throw new Error('This item can’t be played in this browser');
 	}
+	if (opts.webcodecs && !hls) throw new Error('Jellyfin didn’t offer an HLS stream to decode');
 
 	// No choice made means the source's default track, which the details
 	// page and the player's settings already show as selected.

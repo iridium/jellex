@@ -4,6 +4,7 @@
 	import { imageUrl } from '#lib/images.ts';
 	import { player } from '#lib/player.svelte.ts';
 	import { colorsFrom } from '#lib/ultrablur.ts';
+	import { CanvasMedia } from '#lib/webcodecs/canvas-media.ts';
 	import Icon from '../Icon.svelte';
 	import Spinner from '../Spinner.svelte';
 	import Chapters from './Chapters.svelte';
@@ -20,6 +21,8 @@
 	// both, so playback carries on while browsing.
 	let root: HTMLDivElement | undefined = $state();
 	let media: HTMLVideoElement | undefined = $state();
+	// Car mode draws video here (WebCodecs) instead of in the <video>.
+	let canvasEl: HTMLCanvasElement | undefined = $state();
 	let idle = $state(false);
 	let overBars = $state(false);
 	let showInfo = $state(false);
@@ -82,6 +85,9 @@
 
 	$effect(() => {
 		if (media) player.attach(media);
+	});
+	$effect(() => {
+		if (canvasEl) player.attach(new CanvasMedia(canvasEl));
 	});
 
 	// The mini player takes 100px from the bottom of the app.
@@ -306,8 +312,18 @@
 		</div>
 	{/if}
 
+	<canvas
+		bind:this={canvasEl}
+		class="media"
+		class:inactive={!player.usingCanvas}
+		width="0"
+		height="0"
+		onclick={() => mini && player.expand()}
+	></canvas>
+
 	<video
 		bind:this={media}
+		class:inactive={player.usingCanvas}
 		style:--subtitle-scale={settings.value.subtitleSize / 100}
 		style:--subtitle-color={settings.value.subtitleColor}
 		class="media"
@@ -384,7 +400,8 @@
 	.player .click-target:focus {
 		outline: none;
 	}
-	.player.closed .media {
+	.player.closed .media,
+	.media.inactive {
 		display: none;
 	}
 	.cursor-hidden,

@@ -113,7 +113,10 @@
 
 	function measure() {
 		if (!grid) return;
-		const top = grid.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+		// Rects are in window pixels; car mode zooms the page.
+		const top =
+			(grid.getBoundingClientRect().top - scroller.getBoundingClientRect().top) /
+			(scroller.currentCSSZoom || 1);
 		viewTop = Math.max(0, -top);
 		viewHeight = scroller.clientHeight;
 	}
@@ -137,7 +140,9 @@
 	export function jumpTo(index: number) {
 		if (!grid) return;
 		const gridTop =
-			grid.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+			(grid.getBoundingClientRect().top - scroller.getBoundingClientRect().top) /
+				(scroller.currentCSSZoom || 1) +
+			scroller.scrollTop;
 		scroller.scrollTo({ top: gridTop + Math.floor(index / cols) * rowHeight - 16 });
 	}
 

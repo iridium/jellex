@@ -11,6 +11,8 @@ export interface Settings {
 	subtitleSize: number;
 	/** Theme: the accent colour (hex). */
 	accent: string;
+	/** General: car mode (a bigger UI; video drawn with WebCodecs on a canvas). */
+	carMode: boolean;
 }
 
 const KEY = 'jellex.settings';
@@ -19,7 +21,8 @@ const defaults: Settings = {
 	subtitleColor: '#ffffff',
 	subtitlePosition: 'bottom',
 	subtitleSize: 100,
-	accent: '#00a4dc'
+	accent: '#00a4dc',
+	carMode: false
 };
 
 function read(): Settings {
@@ -120,6 +123,11 @@ export const accentPresets = [
 	{ label: 'Red', main: '#e5484d' },
 	{ label: 'Pink', main: '#e45ba0' }
 ] as const;
+
+/** Car mode scales the whole UI (`html.car-mode` in layout.css). */
+export function applyCarMode(on: boolean) {
+	document.documentElement.classList.toggle('car-mode', on);
+}
 
 export function applyTheme(accent: string) {
 	const preset = accentPresets.find((p) => p.main === accent.toLowerCase());

@@ -39,6 +39,12 @@ body {
 	height: 100%;
 }
 
+/* Settings > General > Car mode: everything 1.5× for a dashboard screen
+   at arm's length. */
+html.car-mode {
+	zoom: 1.5;
+}
+
 body {
 	margin: 0;
 	overflow: hidden;

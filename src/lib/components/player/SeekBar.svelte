@@ -25,9 +25,10 @@
 	const thumb = $derived(player.isAudio ? null : player.trickplay(previewTime, THUMB_WIDTH));
 	const large = $derived(duration >= 3600);
 
+	/** The pointer's offset in the bar's own pixels (car mode zooms the page). */
 	function x(e: PointerEvent) {
 		const r = bar!.getBoundingClientRect();
-		return Math.max(0, Math.min(r.width, e.clientX - r.left));
+		return Math.max(0, Math.min(width, ((e.clientX - r.left) / r.width) * width));
 	}
 	function down(e: PointerEvent) {
 		if (!duration) return;

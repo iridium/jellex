@@ -9,6 +9,11 @@ import { getSessionApi } from '@jellyfin/sdk/lib/utils/api/session-api';
 import Hls from 'hls.js';
 import { getStream, resolveQueue, type Stream } from './playback.ts';
 import { session } from './session.svelte.ts';
+import { settings } from './settings.svelte.ts';
+import { CanvasMedia } from './webcodecs/canvas-media.ts';
+
+/** The <video> element, or car mode's WebCodecs canvas standing in for it. */
+type Media = HTMLMediaElement | CanvasMedia;
 
 export type Mode = 'closed' | 'full' | 'mini';
 export type Repeat = 'off' | 'all' | 'one';
@@ -126,6 +131,8 @@ class Player {
 	fullscreen = $state(false);
 	/** The media element has rendered a frame (Plex then clears the full player's background). */
 	hasFrames = $state(false);
+	/** Car mode: the current video plays on the WebCodecs canvas, not the <video>. */
+	usingCanvas = $state(false);
 	markers = $state<Marker[]>([]);
 	audioIndex = $state<number | undefined>(undefined);
 	subtitleIndex = $state<number | undefined>(undefined);
@@ -136,7 +143,10 @@ class Player {
 		null
 	);
 
-	el: HTMLMediaElement | null = null;
+	/** Whichever of the two is playing the current item. */
+	el: Media | null = null;
+	private video: HTMLMediaElement | null = null;
+	private canvas: CanvasMedia | null = null;
 	private hls: Hls | null = null;
 	private progressTimer: ReturnType<typeof setInterval> | undefined;
 	private loadToken = 0;
@@ -160,23 +170,35 @@ class Player {
 		return this.index > 0;
 	}
 
-	/** Called by the Player component with its media element. */
-	attach(el: HTMLMediaElement) {
-		this.el = el;
+	/**
+	 * Called by the Player component with its media element and car mode's
+	 * canvas player. Events count only from the one in use.
+	 */
+	attach(el: Media) {
+		if (el instanceof CanvasMedia) this.canvas = el;
+		else {
+			this.video = el;
+			if (!this.usingCanvas || !this.el) this.el = el;
+		}
 		el.volume = this.volume;
 		el.muted = this.muted;
-		el.addEventListener('timeupdate', () => {
+		const on = (type: string, fn: () => void) =>
+			el.addEventListener(type, () => this.el === el && fn());
+		on('error', () => {
+			if (el instanceof CanvasMedia) this.error = el.error || 'Playback failed';
+		});
+		on('timeupdate', () => {
 			this.currentTime = el.currentTime;
 			if (Date.now() - this.lastSave > 2000) this.persist();
 		});
-		el.addEventListener('durationchange', () => {
+		on('durationchange', () => {
 			if (Number.isFinite(el.duration) && el.duration > 0) this.duration = el.duration;
 		});
-		el.addEventListener('progress', () => {
+		on('progress', () => {
 			const b = el.buffered;
 			this.buffered = b.length ? b.end(b.length - 1) : 0;
 		});
-		el.addEventListener('play', () => {
+		on('play', () => {
 			this.paused = false;
 			if (this.pendingStart) {
 				this.pendingStart = false;
@@ -184,19 +206,16 @@ class Player {
 			} else this.reportProgress();
 			this.persist();
 		});
-		el.addEventListener(
-			'pause',
-			() => ((this.paused = true), this.reportProgress(), this.persist())
-		);
-		el.addEventListener('seeked', () => (this.reportProgress(), this.persist()));
-		el.addEventListener('volumechange', () => {
+		on('pause', () => ((this.paused = true), this.reportProgress(), this.persist()));
+		on('seeked', () => (this.reportProgress(), this.persist()));
+		on('volumechange', () => {
 			this.volume = el.volume;
 			this.muted = el.muted;
 			store('jellex.volume', el.volume);
 			store('jellex.muted', el.muted);
 		});
-		el.addEventListener('ended', () => this.ended());
-		el.addEventListener('loadeddata', () => (this.hasFrames = true));
+		on('ended', () => this.ended());
+		on('loadeddata', () => (this.hasFrames = true));
 		// The Player component remounts on every sign-in; listen once.
 		if (!this.pagehideBound) {
 			this.pagehideBound = true;
@@ -205,7 +224,7 @@ class Player {
 				this.reportStop(true);
 			});
 		}
-		void this.restore();
+		if (!(el instanceof CanvasMedia)) void this.restore();
 	}
 
 	// What's playing survives a reload: the queue, position and player
@@ -337,6 +356,17 @@ class Player {
 		this.buffered = 0;
 		this.markers = [];
 		this.hasFrames = false;
+		// Car mode plays video on the WebCodecs canvas; music stays on <video>.
+		const canvas =
+			settings.value.carMode && entry.MediaType !== 'Audio' && CanvasMedia.supported
+				? this.canvas
+				: null;
+		this.usingCanvas = !!canvas;
+		this.el = canvas ?? this.video;
+		if (this.el) {
+			this.el.volume = this.volume;
+			this.el.muted = this.muted;
+		}
 
 		try {
 			const api = session.requireApi;
@@ -354,7 +384,8 @@ class Player {
 				startTicks,
 				audio: this.audioIndex,
 				subtitle: this.subtitleIndex,
-				maxBitrate: this.maxBitrate ?? undefined
+				maxBitrate: this.maxBitrate ?? undefined,
+				webcodecs: !!canvas
 			});
 			if (token !== this.loadToken) return;
 			this.stream = s;
@@ -372,7 +403,9 @@ class Player {
 	private attachStream(s: Stream, start: number, autoplay = true) {
 		const el = this.el;
 		if (!el) return;
-		if (s.hls && !el.canPlayType('application/vnd.apple.mpegurl') && Hls.isSupported()) {
+		if (el instanceof CanvasMedia) {
+			void el.open(s.url, start);
+		} else if (s.hls && !el.canPlayType('application/vnd.apple.mpegurl') && Hls.isSupported()) {
 			this.hls = new Hls({ startPosition: start });
 			this.hls.loadSource(s.url);
 			this.hls.attachMedia(el);
@@ -392,12 +425,13 @@ class Player {
 		this.hls?.destroy();
 		this.hls = null;
 		this.stream = null;
-		if (this.el) {
+		this.canvas?.reset();
+		if (this.video?.hasAttribute('src')) {
 			// Turn subtitles off first: a cue on screen stays drawn after its
 			// track is removed or the source changes.
-			for (const t of Array.from(this.el.textTracks)) t.mode = 'disabled';
-			this.el.removeAttribute('src');
-			this.el.load();
+			for (const t of Array.from(this.video.textTracks)) t.mode = 'disabled';
+			this.video.removeAttribute('src');
+			this.video.load();
 		}
 	}
 
